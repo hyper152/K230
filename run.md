@@ -95,7 +95,7 @@ cd scripts
 | `max_miss_count` | `4` | 漏检容忍帧数 |
 | `smooth_alpha` | `0.65` | 位置平滑系数 |
 
-### 调参技巧
+### 调参技
 
 - **误检多** → 提高 `confidence_threshold`（0.60 ~ 0.70）
 - **漏检多** → 降低 `confidence_threshold`（0.30 ~ 0.45）
