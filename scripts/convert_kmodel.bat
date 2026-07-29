@@ -1,13 +1,40 @@
 @echo off
-REM ONNX → K230 kmodel 转换脚本（需安装 nncase 工具链）
-REM 用法: scripts\convert_kmodel.bat
+REM ONNX to K230 kmodel conversion script
+REM Usage: cd scripts && convert_kmodel.bat
 
-set ONNX_PATH=..\train\yolov11m2\weights\best.onnx
-set KMODEL_PATH=..\train\yolov11m2\weights\best.kmodel
+REM nncase needs .NET hostfxr path
+set "DOTNET_ROOT=%USERPROFILE%\.dotnet"
+set "PATH=%USERPROFILE%\.dotnet;%PATH%"
 
-echo Converting %ONNX_PATH% to kmodel ...
-echo TODO: 请使用 nncase 的 ncc 工具:
-echo   ncc compile %ONNX_PATH% %KMODEL_PATH% -i onnx -o kmodel
+set MODEL=..\train\yolov11m2\weights\best.onnx
+set DATASET=..\dataset\steelball\images\train
+set WIDTH=320
+set HEIGHT=320
+set PTQ=0
+
+echo [1/3] ONNX Simplify + Compile to kmodel ...
+echo   Model:   %MODEL%
+echo   Dataset: %DATASET%
+echo   Size:    %WIDTH%x%HEIGHT%
+echo   PTQ:     %PTQ%
 echo.
-echo 转换完成后将 best.kmodel 拷贝到 K230 开发板的 /sdcard/ 目录下。
+
+call C:\environment\anaconda\Scripts\conda.exe run -n cv python test_yolo11\detect\to_kmodel.py ^
+    --target k230 ^
+    --model %MODEL% ^
+    --dataset %DATASET% ^
+    --input_width %WIDTH% ^
+    --input_height %HEIGHT% ^
+    --ptq_option %PTQ%
+
+echo.
+if exist ..\train\yolov11m2\weights\best.kmodel (
+    echo [2/3] kmodel generated:
+    dir ..\train\yolov11m2\weights\best.kmodel
+    echo.
+    echo [3/3] Copy best.kmodel to K230 /sdcard/ to deploy.
+) else (
+    echo [ERROR] kmodel not found, check logs above.
+)
+
 pause

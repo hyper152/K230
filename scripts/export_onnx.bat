@@ -1,6 +1,6 @@
 @echo off
-REM YOLO PyTorch → ONNX 导出脚本
-REM 用法: scripts\export_onnx.bat
+REM YOLO PyTorch ??ONNX ??????
+REM ???: scripts\export_onnx.bat
 
 set WEIGHTS=..\train\yolov11m2\weights\best.pt
 set IMSZ=320

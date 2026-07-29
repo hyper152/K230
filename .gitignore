@@ -1,0 +1,33 @@
+# K230D BOX steel ball detection project
+# Large files / binaries not suitable for git
+
+# === 开发板资料盘（大文件多，单独下载） ===
+DNK230D开发板资料/
+
+# === Model weights (large binary files) ===
+train/**/weights/*.onnx
+train/**/weights/*.pt
+train/**/weights/*.kmodel
+
+# === Dataset images (too many, not code) ===
+dataset/**/images/*.jpg
+dataset/**/images/*.png
+
+# === OS generated files ===
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+
+# === IDE ===
+.idea/
+.vscode/
+*.suo
