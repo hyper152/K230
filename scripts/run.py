@@ -8,6 +8,9 @@ from libs.AIBase import AIBase
 from libs.AI2D import Ai2d
 import os, gc
 from media.media import *
+from media.sensor import *
+from media.display import *
+from machine import FPIOA, Pin
 from time import *
 import nncase_runtime as nn
 import ulab.numpy as np
@@ -230,8 +233,18 @@ class YOLOv12App(AIBase):
 
 
 if __name__ == "__main__":
+    # ------------------------------------------------------------------ #
+    #  初始化摄像头 & 显示器（参考 DNK230D 官方例程模式）
+    # ------------------------------------------------------------------ #
+    sensor = Sensor(width=1280, height=720)
     pl = PipeLine(rgb888p_size=rgb888p_size, display_size=display_size, display_mode=display_mode)
-    pl.create()
+    pl.create(sensor=sensor)
+
+    # 开启 LCD 背光（DNK230D 背光 GPIO = pin 5，高电平有效）
+    fpioa = FPIOA()
+    fpioa.set_function(5, fpioa.GPIO0 + 5)
+    bl = Pin(5, Pin.OUT, pull=Pin.PULL_DOWN, drive=7)
+    bl.value(1)
 
     yolo_det = YOLOv12App(
         kmodel_path,
@@ -245,6 +258,12 @@ if __name__ == "__main__":
     )
     yolo_det.config_preprocess()
 
+    print("=" * 50)
+    print("K230D 钢球检测启动")
+    print("显示模式:", display_mode)
+    print("检测阈值: conf={}, nms={}".format(confidence_threshold, nms_threshold))
+    print("=" * 50)
+
     frame_count = 0
     try:
         while True:
@@ -255,10 +274,35 @@ if __name__ == "__main__":
                 res = yolo_det.run(img)
                 yolo_det.draw_result(pl, res)
                 pl.show_image()
+
+                # ------ 串口输出钢珠检测结果 ------ #
+                if len(res) > 0:
+                    print("=== Frame {} | 检测到 {} 个钢珠 ===".format(frame_count, len(res)))
+                    for idx, det in enumerate(res):
+                        x, y, w, h, cls_id, score = det[:6]
+                        # 图像坐标系（模型输入空间）中的中心坐标和宽高
+                        cx_img = round(x, 1)
+                        cy_img = round(y, 1)
+                        w_img = round(w, 1)
+                        h_img = round(h, 1)
+                        # 换算到显示坐标系
+                        cx_disp = int(x * display_size[0] // rgb888p_size[0])
+                        cy_disp = int(y * display_size[1] // rgb888p_size[1])
+                        print("  Ball#{}: center=({}, {})  size=({}x{})  conf={:.3f}".format(
+                            idx, cx_img, cy_img, w_img, h_img, score
+                        ))
+                        print("          display=({}, {})  confidence={:.3f}".format(
+                            cx_disp, cy_disp, score
+                        ))
+                else:
+                    if frame_count % 30 == 0:
+                        print("=== Frame {} | 未检测到钢珠 ===".format(frame_count))
+
                 if frame_count % 60 == 0:
                     gc.collect()
     except Exception as e:
-        print(e)
+        print("Error:", e)
     finally:
         yolo_det.deinit()
         pl.destroy()
+        print("钢球检测已停止")

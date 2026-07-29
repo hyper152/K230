@@ -1,0 +1,118 @@
+{
+  "version": "3.3.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          199.99936000000002,
+          161.00028
+        ],
+        [
+          254.99967999999998,
+          161.00028
+        ],
+        [
+          254.99967999999998,
+          216.00036
+        ],
+        [
+          199.99936000000002,
+          216.00036
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          564.0,
+          183.99996
+        ],
+        [
+          618.00064,
+          183.99996
+        ],
+        [
+          618.00064,
+          236.99988
+        ],
+        [
+          564.0,
+          236.99988
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          742.00064,
+          334.9998
+        ],
+        [
+          800.0,
+          334.9998
+        ],
+        [
+          800.0,
+          389.99988
+        ],
+        [
+          742.00064,
+          389.99988
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          1102.00064,
+          23.999760000000002
+        ],
+        [
+          1152.0,
+          23.999760000000002
+        ],
+        [
+          1152.0,
+          68.99976
+        ],
+        [
+          1102.00064,
+          68.99976
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    }
+  ],
+  "imagePath": "00618.jpg",
+  "imageData": null,
+  "imageHeight": 720,
+  "imageWidth": 1280
+}

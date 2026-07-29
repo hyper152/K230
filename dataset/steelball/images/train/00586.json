@@ -1,0 +1,118 @@
+{
+  "version": "3.3.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          455.740288,
+          122.41101599999999
+        ],
+        [
+          508.401792,
+          122.41101599999999
+        ],
+        [
+          508.401792,
+          174.358584
+        ],
+        [
+          455.740288,
+          174.358584
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          1054.147904,
+          258.07183200000003
+        ],
+        [
+          1112.275136,
+          258.07183200000003
+        ],
+        [
+          1112.275136,
+          314.17840800000005
+        ],
+        [
+          1054.147904,
+          314.17840800000005
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          830.807104,
+          382.74649200000005
+        ],
+        [
+          890.229696,
+          382.74649200000005
+        ],
+        [
+          890.229696,
+          440.49286800000004
+        ],
+        [
+          830.807104,
+          440.49286800000004
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          522.503168,
+          17.368199999999998
+        ],
+        [
+          573.4277119999999,
+          17.368199999999998
+        ],
+        [
+          573.4277119999999,
+          65.8746
+        ],
+        [
+          522.503168,
+          65.8746
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    }
+  ],
+  "imagePath": "00586.jpg",
+  "imageData": null,
+  "imageHeight": 720,
+  "imageWidth": 1280
+}

@@ -1,0 +1,37 @@
+{
+  "version": "3.3.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          275.00032,
+          613.0000799999999
+        ],
+        [
+          360.0,
+          613.0000799999999
+        ],
+        [
+          360.0,
+          691.9999200000001
+        ],
+        [
+          275.00032,
+          691.9999200000001
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    }
+  ],
+  "imagePath": "00620.jpg",
+  "imageData": null,
+  "imageHeight": 720,
+  "imageWidth": 1280
+}

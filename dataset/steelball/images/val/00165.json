@@ -1,0 +1,118 @@
+{
+  "version": "3.3.3",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          544.4513919999999,
+          278.51814
+        ],
+        [
+          616.3857280000001,
+          278.51814
+        ],
+        [
+          616.3857280000001,
+          350.02314
+        ],
+        [
+          544.4513919999999,
+          350.02314
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          323.3523839999999,
+          537.8967359999999
+        ],
+        [
+          380.481216,
+          537.8967359999999
+        ],
+        [
+          380.481216,
+          599.482944
+        ],
+        [
+          323.3523839999999,
+          599.482944
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          603.511808,
+          423.705132
+        ],
+        [
+          662.044672,
+          423.705132
+        ],
+        [
+          662.044672,
+          489.270708
+        ],
+        [
+          603.511808,
+          489.270708
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    },
+    {
+      "label": "steel_ball",
+      "shape_type": "rectangle",
+      "flags": {},
+      "points": [
+        [
+          655.2516480000002,
+          522.072864
+        ],
+        [
+          714.617152,
+          522.072864
+        ],
+        [
+          714.617152,
+          586.331136
+        ],
+        [
+          655.2516480000002,
+          586.331136
+        ]
+      ],
+      "group_id": null,
+      "description": null,
+      "difficult": false,
+      "attributes": {}
+    }
+  ],
+  "imagePath": "00165.jpg",
+  "imageData": null,
+  "imageHeight": 720,
+  "imageWidth": 1280
+}
