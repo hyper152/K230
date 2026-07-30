@@ -48,6 +48,29 @@ sensor_width = 1280
 sensor_height = 720
 
 
+def find_sensor():
+    """扫描 CSI0~CSI2，返回第一个可用的摄像头对象和编号。"""
+    errors = []
+    for sensor_id in range(3):
+        try:
+            print("Scanning camera on CSI{}...".format(sensor_id))
+            sensor = Sensor(
+                id=sensor_id,
+                width=sensor_width,
+                height=sensor_height
+            )
+            print("Camera found on CSI{}".format(sensor_id))
+            return sensor, sensor_id
+        except Exception as exc:
+            errors.append("CSI{}: {}".format(sensor_id, exc))
+            print("No camera on CSI{}: {}".format(sensor_id, exc))
+            gc.collect()
+
+    raise RuntimeError(
+        "No camera found on CSI0~CSI2; " + "; ".join(errors)
+    )
+
+
 class YOLOv12App(AIBase):
 
     def __init__(self, kmodel_path, model_input_size, anchors,
@@ -249,9 +272,10 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------ #
     #  初始化摄像头 & PipeLine（参考正点原子官方例程）
     # ------------------------------------------------------------------ #
-    sensor = Sensor(width=sensor_width, height=sensor_height)
+    sensor, sensor_id = find_sensor()
     pl = PipeLine(rgb888p_size=rgb888p_size, display_size=display_size, display_mode=display_mode)
     pl.create(sensor=sensor)
+    print("Using camera CSI{}".format(sensor_id))
 
     yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
                           rgb888p_size, display_size, debug_mode)
