@@ -299,7 +299,35 @@ class YOLOv12App(AIBase):
         return 0, int(round(dh * 2 + 0.1)), 0, int(round(dw * 2 - 0.1))
 
 
+def init_uart2():
+    """初始化 UART2 硬件串口（IO44=TX, IO45=RX）。
+
+    必须在 pl.create() 之前调用，避免 media/sensor 启动时重配 FPIOA
+    覆盖掉 UART2 的引脚分配。返回 UART 对象或 None。
+    """
+    if not uart2_enable:
+        return None
+    try:
+        fpioa = FPIOA()
+        fpioa.set_function(44, FPIOA.UART2_TXD)
+        fpioa.set_function(45, FPIOA.UART2_RXD)
+        u2 = UART(UART.UART2, baudrate=uart2_baudrate,
+                  bits=UART.EIGHTBITS, parity=UART.PARITY_NONE, stop=UART.STOPBITS_ONE)
+        # 自检：发送一条测试消息，方便确认 port2 是否真的有输出
+        u2.write("UART2_OK\r\n")
+        print("UART2 initialized: baudrate={} (IO44=TX, IO45=RX)".format(uart2_baudrate))
+        return u2
+    except Exception as exc:
+        print("UART2 init failed, fallback to REPL serial only: {}".format(exc))
+        return None
+
+
 if __name__ == "__main__":
+    # ------------------------------------------------------------------ #
+    #  初始化 UART2（必须先于 pl.create，避免引脚被 media 重配）
+    # ------------------------------------------------------------------ #
+    uart2 = init_uart2()
+
     # ------------------------------------------------------------------ #
     #  初始化摄像头 & PipeLine（参考正点原子官方例程）
     # ------------------------------------------------------------------ #
@@ -307,20 +335,6 @@ if __name__ == "__main__":
     pl = PipeLine(rgb888p_size=rgb888p_size, display_size=display_size, display_mode=display_mode)
     pl.create(sensor=sensor)
     print("Using camera CSI{}".format(sensor_id))
-
-    # ------ 初始化 UART2 硬件串口（IO44/IO45） ------ #
-    uart2 = None
-    if uart2_enable:
-        try:
-            fpioa = FPIOA()
-            fpioa.set_function(44, FPIOA.UART2_TXD)
-            fpioa.set_function(45, FPIOA.UART2_RXD)
-            uart2 = UART(UART.UART2, baudrate=uart2_baudrate,
-                         bits=UART.EIGHTBITS, parity=UART.PARITY_NONE, stop=UART.STOPBITS_ONE)
-            print("UART2 initialized: baudrate={} (IO44=TX, IO45=RX)".format(uart2_baudrate))
-        except Exception as exc:
-            uart2 = None
-            print("UART2 init failed, fallback to REPL serial only: {}".format(exc))
 
     def serial_send(msg):
         """同时输出到 REPL/调试串口和 UART2（如果已启用）。"""
