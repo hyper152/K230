@@ -3,7 +3,7 @@
 依赖 K230 nncase runtime 环境，在 K230 开发板上运行。
 """
 
-from libs.PipeLine import PipeLine, ScopedTiming
+from .PipeLine import PipeLine, ScopedTiming
 from libs.AIBase import AIBase
 from libs.AI2D import Ai2d
 import os, gc
@@ -20,7 +20,7 @@ from machine import FPIOA
 from .uart_link import init_uart2 as init_uart2_link
 from .uart_link import send_line as uart_send_line
 from .uart_link import deinit_uart
-from .wireless_image import WirelessImageSender
+from .wireless_image import AsyncWirelessImageSender
 from .config import *
 
 
@@ -406,16 +406,25 @@ def run():
     #  初始化摄像头 & PipeLine（参考正点原子官方例程）
     # ------------------------------------------------------------------ #
     sensor, sensor_id = find_sensor()
-    pl = PipeLine(rgb888p_size=rgb888p_size, display_size=display_size, display_mode=display_mode)
+    pl = PipeLine(
+        rgb888p_size=rgb888p_size,
+        display_size=display_size,
+        display_mode=display_mode,
+        gray_size=[wireless_image_width, wireless_image_height]
+                  if wireless_image_enable else None,
+        gray_channel=wireless_image_sensor_channel
+    )
     pl.create(sensor=sensor)
     print("Using camera CSI{}".format(sensor_id))
+
+    wireless_sensor = sensor if wireless_image_enable else None
 
     # media/sensor 完成后，再按官方顺序映射 FPIOA 并创建 UART 对象。
     uart2 = init_uart2_link(uart2_baudrate, uart2_tx_pin, uart2_rx_pin)
     wireless_image = None
     if wireless_image_enable:
         try:
-            wireless_image = WirelessImageSender(
+            wireless_image = AsyncWirelessImageSender(
                 width=wireless_image_width,
                 height=wireless_image_height,
                 baudrate=wireless_image_spi_baudrate,
@@ -423,14 +432,21 @@ def run():
                 clk_pin=wireless_image_clk_pin,
                 mosi_pin=wireless_image_mosi_pin,
                 miso_pin=wireless_image_miso_pin,
-                ready_pin=wireless_image_ready_pin
+                ready_pin=wireless_image_ready_pin,
+                spi_phase=wireless_image_spi_phase,
+                compensate_bit_shift=wireless_image_compensate_bit_shift,
+                sensor=wireless_sensor,
+                sensor_channel=wireless_image_sensor_channel
             )
         except Exception as exc:
             print("Wireless image SPI init failed: {}".format(exc))
 
     def serial_send(msg):
         """同时输出到 REPL/调试串口和 UART2（如果已启用）。"""
-        uart_send_line(uart2, msg)
+        # UART2 remains full-rate; REPL output is throttled independently.
+        echo = (serial_log_interval > 0 and
+                frame_count % serial_log_interval == 0)
+        uart_send_line(uart2, msg, echo=echo)
 
     yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
                           rgb888p_size, display_size, debug_mode)
@@ -453,7 +469,7 @@ def run():
                 if (wireless_image is not None and
                         frame_count % wireless_image_interval == 0):
                     try:
-                        wireless_image.send(img)
+                        wireless_image.submit(img)
                     except Exception as exc:
                         print("Wireless image send failed: {}".format(exc))
                 # 每帧推理；屏幕刷新与串口数据输出使用独立节拍。
@@ -497,8 +513,8 @@ def run():
         print("Error:", e)
     finally:
         yolo_det.deinit()
-        pl.destroy()
-        deinit_uart(uart2)
         if wireless_image is not None:
             wireless_image.deinit()
+        pl.destroy()
+        deinit_uart(uart2)
         print("钢球检测已停止")

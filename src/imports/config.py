@@ -11,6 +11,9 @@ camera_sensor_id = 2
 
 # Position output
 serial_interval = 1
+# Only mirror one result in every 20 frames to the IDE. UART2 still transmits
+# at serial_interval, so the external controller does not lose update rate.
+serial_log_interval = 20
 verbose_serial = False
 uart2_enable = True
 uart2_baudrate = 115200
@@ -19,10 +22,15 @@ uart2_rx_pin = 45
 
 # LongQiu wireless image module
 wireless_image_enable = True
-wireless_image_interval = 2
-wireless_image_width = 188
+# Submit every inference frame. The asynchronous sender keeps only the newest
+# pending frame, so a slow network can no longer stall detection.
+wireless_image_interval = 1
+wireless_image_width = 192
 wireless_image_height = 120
-wireless_image_spi_baudrate = 2_000_000
+wireless_image_sensor_channel = 1
+wireless_image_spi_baudrate = 10_000_000
+wireless_image_spi_phase = 1
+wireless_image_compensate_bit_shift = False
 wireless_image_cs_pin = 19
 wireless_image_clk_pin = 15
 wireless_image_mosi_pin = 16

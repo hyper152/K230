@@ -21,7 +21,7 @@ def init_uart2(baudrate=115200, tx_pin=44, rx_pin=45):
         return None
 
 
-def send_line(uart, message):
+def send_line(uart, message, echo=True):
     if uart is not None:
         try:
             data = message + "\r\n"
@@ -30,7 +30,8 @@ def send_line(uart, message):
                 print("UART2 short write: {}/{} bytes".format(written, len(data)))
         except Exception as exc:
             print("UART2 write failed: {}".format(exc))
-    print(message)
+    if echo:
+        print(message)
 
 
 def deinit_uart(uart):
