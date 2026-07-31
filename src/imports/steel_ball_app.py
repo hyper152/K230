@@ -15,7 +15,7 @@ import nncase_runtime as nn
 import ulab.numpy as np
 import image
 import aidemo
-from machine import UART, SPI, Pin
+from machine import SPI, Pin
 from machine import FPIOA
 from .wireless_image import AsyncWirelessImageSender
 from .config import *
@@ -31,37 +31,6 @@ def find_sensor():
     )
     print("Camera found on CSI{}".format(camera_sensor_id))
     return sensor, camera_sensor_id
-
-
-def init_uart2():
-    """按 13:00-14:00 期间已验证版本 f36c451 初始化 Port2。"""
-    if not uart2_enable:
-        return None
-    try:
-        fpioa = FPIOA()
-        fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD)
-        fpioa.set_function(uart2_rx_pin, FPIOA.UART2_RXD)
-        u2 = UART(UART.UART2, baudrate=uart2_baudrate,
-                  bits=UART.EIGHTBITS, parity=UART.PARITY_NONE,
-                  stop=UART.STOPBITS_ONE)
-        # A long alternating-bit burst is visible even on a basic scope.
-        # It also verifies the physical Port2 TX path after SPI was started.
-        test_pattern = bytes([0x55]) * 256
-        test_written = u2.write(test_pattern)
-        probe = "UART2_READY\r\n"
-        probe_written = u2.write(probe)
-        tx_pin = fpioa.get_pin_num(FPIOA.UART2_TXD)
-        rx_pin = fpioa.get_pin_num(FPIOA.UART2_RXD)
-        print("UART2 initialized: baudrate={} (IO{}=TX, IO{}=RX)".format(
-            uart2_baudrate, tx_pin, rx_pin))
-        print("UART2 waveform probe: {}/{} bytes".format(
-            test_written, len(test_pattern)))
-        print("UART2 startup probe: {}/{} bytes".format(
-            probe_written, len(probe)))
-        return u2
-    except Exception as exc:
-        print("UART2 init failed, fallback to REPL serial only: {}".format(exc))
-        return None
 
 
 class YOLOv12App(AIBase):
@@ -406,7 +375,7 @@ def send_wireless_image(spi, cs, ready, img):
     return True
 
 
-def run():
+def run(port2_send=None):
     # ------------------------------------------------------------------ #
     #  初始化摄像头 & PipeLine（参考正点原子官方例程）
     # ------------------------------------------------------------------ #
@@ -424,8 +393,6 @@ def run():
 
     wireless_sensor = sensor if wireless_image_enable else None
 
-    # UART2 is initialized after SPI so Port2 owns its final FPIOA mapping.
-    uart2 = None
     wireless_image = None
     if wireless_image_enable:
         try:
@@ -449,29 +416,13 @@ def run():
         except Exception as exc:
             print("Wireless image SPI init failed: {}".format(exc))
 
-    # Keep the verified f36c451 UART initialization as the final peripheral
-    # setup operation. This also reasserts IO44/IO45 after SPI construction.
-    uart2 = init_uart2()
-
     def serial_send(msg):
-        """使用 f36c451 中已验证的 UART2 直接发送方式。"""
-        if uart2 is not None:
+        """将位置交给 main.py 拥有的 Port2 发送函数。"""
+        if port2_send is not None:
             try:
-                # Reassert the Port2 pin mux.  The wireless SPI driver and its
-                # worker are initialized independently and must never leave
-                # IO44 assigned to another function.
-                uart_fpioa = FPIOA()
-                if uart_fpioa.get_pin_num(FPIOA.UART2_TXD) != uart2_tx_pin:
-                    uart_fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD)
-                    print("UART2 TX mapping restored to IO{}".format(
-                        uart2_tx_pin))
-                data = msg + "\r\n"
-                written = uart2.write(data)
-                if written != len(data):
-                    print("UART2 short write: {}/{} bytes".format(
-                        written, len(data)))
+                port2_send(msg)
             except Exception as exc:
-                print("UART2 write failed: {}".format(exc))
+                print("Port2 write failed: {}".format(exc))
         if (serial_log_interval > 0 and
                 frame_count % serial_log_interval == 0):
             print(msg)
@@ -544,9 +495,4 @@ def run():
         if wireless_image is not None:
             wireless_image.deinit()
         pl.destroy()
-        if uart2 is not None:
-            try:
-                uart2.deinit()
-            except Exception:
-                pass
         print("钢球检测已停止")
