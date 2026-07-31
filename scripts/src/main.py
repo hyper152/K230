@@ -302,20 +302,16 @@ class YOLOv12App(AIBase):
 
 
 def init_uart2():
-    """初始化 UART2 硬件串口（IO44=TX, IO45=RX）。
-
-    返回 UART 对象或 None。
-    """
+    """按 ATK-DNK230D 官方例程初始化 PH2.0 接口2。"""
     if not uart2_enable:
         return None
     try:
         fpioa = FPIOA()
-        fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD, oe=1)
-        fpioa.set_function(uart2_rx_pin, FPIOA.UART2_RXD, ie=1)
+        fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD)
+        fpioa.set_function(uart2_rx_pin, FPIOA.UART2_RXD)
         u2 = UART(UART.UART2, baudrate=uart2_baudrate,
                   bits=UART.EIGHTBITS, parity=UART.PARITY_NONE, stop=UART.STOPBITS_ONE)
-        # 自检：发送一条测试消息，方便确认 port2 是否真的有输出
-        probe = b"UART2_READY\r\n"
+        probe = "UART2_READY\r\n"
         probe_written = u2.write(probe)
         tx_pin = fpioa.get_pin_num(FPIOA.UART2_TXD)
         rx_pin = fpioa.get_pin_num(FPIOA.UART2_RXD)
@@ -329,9 +325,6 @@ def init_uart2():
 
 
 if __name__ == "__main__":
-    # UART 先初始化；这个顺序已验证不会阻塞 K230D 摄像头启动。
-    uart2 = init_uart2()
-
     # ------------------------------------------------------------------ #
     #  初始化摄像头 & PipeLine（参考正点原子官方例程）
     # ------------------------------------------------------------------ #
@@ -340,20 +333,14 @@ if __name__ == "__main__":
     pl.create(sensor=sensor)
     print("Using camera CSI{}".format(sensor_id))
 
-    # media/sensor 初始化后只重申引脚复用，不重复创建 UART 对象。
-    if uart2 is not None:
-        fpioa = FPIOA()
-        fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD, oe=1)
-        fpioa.set_function(uart2_rx_pin, FPIOA.UART2_RXD, ie=1)
-        probe = b"UART2_MEDIA_READY\r\n"
-        probe_written = uart2.write(probe)
-        print("UART2 media probe: {}/{} bytes".format(probe_written, len(probe)))
+    # media/sensor 完成后，再按官方顺序映射 FPIOA 并创建 UART 对象。
+    uart2 = init_uart2()
 
     def serial_send(msg):
         """同时输出到 REPL/调试串口和 UART2（如果已启用）。"""
         if uart2 is not None:
             try:
-                data = (msg + "\r\n").encode()
+                data = msg + "\r\n"
                 written = uart2.write(data)
                 if written != len(data):
                     print("UART2 short write: {}/{} bytes".format(written, len(data)))

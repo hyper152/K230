@@ -9,8 +9,8 @@ RX_PIN = 45
 BAUDRATE = 115200
 
 fpioa = FPIOA()
-fpioa.set_function(TX_PIN, FPIOA.UART2_TXD, oe=1)
-fpioa.set_function(RX_PIN, FPIOA.UART2_RXD, ie=1)
+fpioa.set_function(TX_PIN, FPIOA.UART2_TXD)
+fpioa.set_function(RX_PIN, FPIOA.UART2_RXD)
 
 print("UART2 TX pin:", fpioa.get_pin_num(FPIOA.UART2_TXD))
 print("UART2 RX pin:", fpioa.get_pin_num(FPIOA.UART2_RXD))
@@ -26,7 +26,7 @@ uart2 = UART(
 counter = 0
 try:
     while True:
-        data = "UART2_TEST:{}\r\n".format(counter).encode()
+        data = "UART2_TEST:{}\r\n".format(counter)
         written = uart2.write(data)
         print("write {}/{} bytes: {}".format(written, len(data), data))
         counter += 1

@@ -9,10 +9,10 @@ import time
 
 
 fpioa = FPIOA()
-fpioa.set_function(40, FPIOA.UART1_TXD, oe=1)
-fpioa.set_function(41, FPIOA.UART1_RXD, ie=1)
-fpioa.set_function(44, FPIOA.UART2_TXD, oe=1)
-fpioa.set_function(45, FPIOA.UART2_RXD, ie=1)
+fpioa.set_function(40, FPIOA.UART1_TXD)
+fpioa.set_function(41, FPIOA.UART1_RXD)
+fpioa.set_function(44, FPIOA.UART2_TXD)
+fpioa.set_function(45, FPIOA.UART2_RXD)
 
 uart1 = UART(UART.UART1, baudrate=115200)
 uart2 = UART(UART.UART2, baudrate=115200)
