@@ -227,11 +227,12 @@ class WirelessImageSender:
 class AsyncWirelessImageSender:
     """Latest-frame-only image pipeline running SPI work in a worker thread."""
 
-    def __init__(self, sensor=None, sensor_channel=1, image_format="gray",
-                 jpeg_quality=45, **kwargs):
+    def __init__(self, sensor=None, sensor_channel=1, sensor_lock=None,
+                 image_format="gray", jpeg_quality=45, **kwargs):
         self.sender = WirelessImageSender(**kwargs)
         self.sensor = sensor
         self.sensor_channel = sensor_channel
+        self.sensor_lock = sensor_lock
         self.image_format = image_format.lower()
         self.jpeg_quality = jpeg_quality
         self._lock = _thread.allocate_lock()
@@ -318,7 +319,14 @@ class AsyncWirelessImageSender:
                 try:
                     if self.sensor is not None:
                         stage_start = ticks_us()
-                        gray_img = self.sensor.snapshot(chn=self.sensor_channel)
+                        if self.sensor_lock is not None:
+                            self.sensor_lock.acquire()
+                        try:
+                            gray_img = self.sensor.snapshot(
+                                chn=self.sensor_channel)
+                        finally:
+                            if self.sensor_lock is not None:
+                                self.sensor_lock.release()
                         snapshot_done = ticks_us()
                         if self.image_format == "jpeg":
                             jpeg_img = gray_img.compressed(

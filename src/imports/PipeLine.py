@@ -10,6 +10,7 @@ import image
 import gc
 import sys
 import time
+import _thread
 
 # PipeLine类
 class PipeLine:
@@ -34,6 +35,9 @@ class PipeLine:
         self.osd_layer_num = osd_layer_num
         self.gray_size = gray_size
         self.gray_channel = gray_channel
+        # media.sensor snapshot() is not safe when called concurrently from
+        # the AI and wireless-image threads.
+        self.snapshot_lock = _thread.allocate_lock()
 
     # PipeLine初始化函数
     def create(self,sensor=None,hmirror=None,vflip=None,fps=60):
@@ -126,8 +130,12 @@ class PipeLine:
     # 获取一帧图像数据，返回格式为ulab的array数据
     def get_frame(self):
         with ScopedTiming("get a frame",self.debug_mode > 0):
-            self.cur_frame = self.sensor.snapshot(chn=CAM_CHN_ID_2)
-            input_np=self.cur_frame.to_numpy_ref()
+            self.snapshot_lock.acquire()
+            try:
+                self.cur_frame = self.sensor.snapshot(chn=CAM_CHN_ID_2)
+                input_np=self.cur_frame.to_numpy_ref()
+            finally:
+                self.snapshot_lock.release()
             return input_np
 
     # 在屏幕上显示osd_img

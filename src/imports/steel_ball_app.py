@@ -438,6 +438,7 @@ def run():
                 compensate_bit_shift=wireless_image_compensate_bit_shift,
                 sensor=wireless_sensor,
                 sensor_channel=wireless_image_sensor_channel,
+                sensor_lock=pl.snapshot_lock,
                 image_format=wireless_image_format,
                 jpeg_quality=wireless_image_jpeg_quality
             )
