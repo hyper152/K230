@@ -44,12 +44,18 @@ def init_uart2():
         u2 = UART(UART.UART2, baudrate=uart2_baudrate,
                   bits=UART.EIGHTBITS, parity=UART.PARITY_NONE,
                   stop=UART.STOPBITS_ONE)
+        # A long alternating-bit burst is visible even on a basic scope.
+        # It also verifies the physical Port2 TX path after SPI was started.
+        test_pattern = bytes([0x55]) * 256
+        test_written = u2.write(test_pattern)
         probe = "UART2_READY\r\n"
         probe_written = u2.write(probe)
         tx_pin = fpioa.get_pin_num(FPIOA.UART2_TXD)
         rx_pin = fpioa.get_pin_num(FPIOA.UART2_RXD)
         print("UART2 initialized: baudrate={} (IO{}=TX, IO{}=RX)".format(
             uart2_baudrate, tx_pin, rx_pin))
+        print("UART2 waveform probe: {}/{} bytes".format(
+            test_written, len(test_pattern)))
         print("UART2 startup probe: {}/{} bytes".format(
             probe_written, len(probe)))
         return u2
@@ -451,6 +457,14 @@ def run():
         """使用 f36c451 中已验证的 UART2 直接发送方式。"""
         if uart2 is not None:
             try:
+                # Reassert the Port2 pin mux.  The wireless SPI driver and its
+                # worker are initialized independently and must never leave
+                # IO44 assigned to another function.
+                uart_fpioa = FPIOA()
+                if uart_fpioa.get_pin_num(FPIOA.UART2_TXD) != uart2_tx_pin:
+                    uart_fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD)
+                    print("UART2 TX mapping restored to IO{}".format(
+                        uart2_tx_pin))
                 data = msg + "\r\n"
                 written = uart2.write(data)
                 if written != len(data):
