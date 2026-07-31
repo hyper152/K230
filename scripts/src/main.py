@@ -26,6 +26,10 @@ rgb888p_size = [320, 320]
 display_size = [640, 480]
 display_interval = 2
 
+# 串口与屏幕分开刷新：位置数据每帧输出，屏幕每 2 帧刷新
+serial_interval = 1
+verbose_serial = False
+
 # 模型 IO
 kmodel_path = "/sdcard/best.kmodel"
 model_input_size = [320, 320]
@@ -39,6 +43,9 @@ detect_threshold = 0.75
 # 时序平滑
 max_miss_count = 4
 smooth_alpha = 0.65
+
+# 钢球运动范围：画面最左端为 0 cm，最右端为 25 cm
+track_length_cm = 25.0
 
 # 调试
 debug_mode = 0
@@ -187,6 +194,14 @@ class YOLOv12App(AIBase):
     def center_dist(a, b):
         return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
+    def x_to_position_cm(self, x):
+        """将钢球中心横坐标按画面宽度线性换算为 0~25 cm。"""
+        image_width = self.rgb888p_size[0]
+        if image_width <= 0:
+            return 0.0
+        position_cm = float(x) * track_length_cm / image_width
+        return max(0.0, min(track_length_cm, position_cm))
+
     def temporal_filter(self, dets):
         if len(dets) > 0:
             filtered = []
@@ -231,6 +246,15 @@ class YOLOv12App(AIBase):
         with ScopedTiming("display_draw", self.debug_mode > 0):
             pl.osd_img.clear()
             pl.osd_img.draw_string_advanced(0, 0, 32, "balls: {}".format(len(dets)), color=(255, 0, 255, 0))
+            if dets:
+                ball_pos_text = "BallPos: {:.2f} cm".format(
+                    self.x_to_position_cm(dets[0][0])
+                )
+            else:
+                ball_pos_text = "BallPos: --"
+            pl.osd_img.draw_string_advanced(
+                0, 36, 32, ball_pos_text, color=(255, 0, 255, 0)
+            )
 
             if dets:
                 for det in dets:
@@ -295,17 +319,22 @@ if __name__ == "__main__":
             with ScopedTiming("total", 0):
                 img = pl.get_frame()
                 res = yolo_det.run(img)
-                # 每帧保持推理；画面与终端结果使用同一个刷新节拍。
+                # 每帧推理；屏幕刷新与串口数据输出使用独立节拍。
                 output_frame = frame_count % display_interval == 0
+                output_serial = frame_count % serial_interval == 0
                 if output_frame:
                     yolo_det.draw_result(pl, res)
                     pl.show_image()
 
                 # ------ 串口输出钢珠检测结果 ------ #
-                if len(res) > 0 and output_frame:
-                    print("=== Frame {} | 检测到 {} 个钢珠 ===".format(frame_count, len(res)))
-                    for idx, det in enumerate(res):
-                        x, y, w, h, cls_id, score = det[:6]
+                if len(res) > 0 and output_serial:
+                    # 结果已按置信度排序，只输出最可信钢球，减少串口阻塞。
+                    x, y, w, h, cls_id, score = res[0][:6]
+                    position_cm = yolo_det.x_to_position_cm(x)
+                    print("BALL_POS_CM:{:.2f}".format(position_cm))
+
+                    if verbose_serial:
+                        print("=== Frame {} | 检测到 {} 个钢珠 ===".format(frame_count, len(res)))
                         # 图像坐标系（模型输入空间）中的中心坐标和宽高
                         cx_img = round(x, 1)
                         cy_img = round(y, 1)
@@ -314,14 +343,16 @@ if __name__ == "__main__":
                         # 换算到显示坐标系
                         cx_disp = int(x * display_size[0] // rgb888p_size[0])
                         cy_disp = int(y * display_size[1] // rgb888p_size[1])
-                        print("  Ball#{}: center=({}, {})  size=({}x{})  conf={:.3f}".format(
-                            idx, cx_img, cy_img, w_img, h_img, score
+                        print("  Ball#0: center=({}, {})  size=({}x{})  conf={:.3f}".format(
+                            cx_img, cy_img, w_img, h_img, score
                         ))
                         print("          display=({}, {})  confidence={:.3f}".format(
                             cx_disp, cy_disp, score
                         ))
-                elif output_frame:
-                    print("=== Frame {} | 未检测到钢珠 ===".format(frame_count))
+                elif output_serial:
+                    print("BALL_POS_CM:NA")
+                    if verbose_serial:
+                        print("=== Frame {} | 未检测到钢珠 ===".format(frame_count))
 
                 if frame_count % 60 == 0:
                     gc.collect()
