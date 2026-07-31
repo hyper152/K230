@@ -1,7 +1,17 @@
 """一键将 Ultralytics best.pt 导出为 ONNX，并编译为 K230 KModel。
 
 填写下方配置后直接运行：
-    py build_model.py
+py build_model.py
+
+参数配置清单：
+| 参数 | 值 | 说明 |
+|------|----|------|
+| 模型 | YOLOv8n (3M 参数量) | K230 兼容、nncase 可转 |
+| 输出尺寸 | 320×320 | K230 RTOS ~33ms/帧，Linux SDK ~58ms/帧 |
+| 输出格式 | 标准 detect 头 | 非 u 变体，nncase 兼容 |
+| 最终目标 | imgsz: 320 | 训练-推理尺寸一致，量化不掉精度 |
+| ONNX 导出 | opset=11, fixed [1,3,320,320], half=False | nncase v2.11 兼容 |
+| nncase 量化 | uint8, 20+ 校准图 | 标准 PTQ 量化路径 |
 """
 
 from __future__ import annotations
@@ -16,14 +26,14 @@ from pathlib import Path
 
 # ======================== 在这里填写路径 ======================== #
 
-# 待转换的 PyTorch 模型路径
-MODEL_PATH = r"C:\Users\23615\Desktop\.hyper\embedded\2026电赛TI杯\k230\weights\yolov8m\best.pt"
+# 待转换的 PyTorch 模型路径（YOLOv8n，3M 参数量）
+MODEL_PATH = r"C:\Users\23615\Desktop\.hyper\embedded\2026电赛TI杯\k230\weights\yolov8n\2\best.pt"
 
 # PTQ 校准图片目录（至少放入 20 张图片）
 CALIBRATION_IMAGE_DIR = r"C:\Users\23615\Desktop\.hyper\PC\CV\data\img\steelball\images"
 
 # 模型输入尺寸，必须是 32 的倍数
-IMAGE_SIZE = 256
+IMAGE_SIZE = 320
 
 # Conda 可执行文件；本机已确认该路径存在
 CONDA_EXE_PATH = r"C:\.environment\anaconda\Scripts\conda.exe"
@@ -140,10 +150,13 @@ def main() -> int:
     print("校准集：{}（{} 张图片）".format(dataset, len(images)))
     print("输入尺寸：{}x{}".format(args.imgsz, args.imgsz))
 
+    # ONNX 导出：opset=11, 固定输入 [1,3,320,320], half=False（nncase v2.11 兼容）
     export_code = (
         "from ultralytics import YOLO; "
         "YOLO({!r}).export(format='onnx', imgsz={}, simplify=True, "
-        "dynamic=False, batch=1)".format(str(model), args.imgsz)
+        "dynamic=False, batch=1, opset=11, half=False)".format(
+            str(model), args.imgsz
+        )
     )
     run(python_command(args.export_env, conda) + ["-c", export_code], tool_dir)
     if not onnx_file.is_file():
