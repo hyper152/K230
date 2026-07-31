@@ -15,10 +15,12 @@ import nncase_runtime as nn
 import ulab.numpy as np
 import image
 import aidemo
-from machine import SPI, Pin
-from machine import FPIOA
-from .wireless_image import AsyncWirelessImageSender
 from .config import *
+
+# 只在明确启用图传时才导入 SPI 及其依赖，关闭时不占用任何 SPI 资源。
+if wireless_image_enable:
+    from machine import SPI, Pin, FPIOA
+    from .wireless_image import AsyncWirelessImageSender
 
 
 def find_sensor():
@@ -150,11 +152,24 @@ class YOLOv12App(AIBase):
         return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
     def x_to_position_cm(self, x):
-        """将钢球中心横坐标按画面宽度线性换算为 0~25 cm。"""
+        """将钢球中心横坐标经两点标定后换算为 0～25 cm。"""
         image_width = self.rgb888p_size[0]
         if image_width <= 0:
             return 0.0
-        position_cm = float(x) * track_length_cm / image_width
+
+        # 先按画面宽度计算原始位置，再将原 4～20 cm 线性映射到 0～25 cm。
+        raw_position_cm = float(x) * track_length_cm / image_width
+        calibration_span_cm = (
+            position_calibration_max_cm - position_calibration_min_cm
+        )
+        if calibration_span_cm <= 0:
+            return 0.0
+
+        position_cm = (
+            (raw_position_cm - position_calibration_min_cm)
+            * track_length_cm
+            / calibration_span_cm
+        )
         return max(0.0, min(track_length_cm, position_cm))
 
     def temporal_filter(self, dets):
@@ -391,7 +406,7 @@ def run(port2_init=None, port2_send=None):
     pl.create(sensor=sensor)
     print("Using camera CSI{}".format(sensor_id))
 
-    # f36c451's verified order: initialize UART2 only after sensor.run().
+    # 按已验证的初始化顺序：摄像头启动后再配置 UART2。
     if port2_init is not None:
         port2_init()
 
@@ -442,11 +457,18 @@ def run(port2_init=None, port2_send=None):
     print("=" * 50)
 
     frame_count = 0
+    last_uart2_ready_ms = ticks_ms()
     try:
         while True:
             frame_count += 1
             os.exitpoint()
             with ScopedTiming("total", 0):
+                now_ms = ticks_ms()
+                if (port2_send is not None and
+                        ticks_diff(now_ms, last_uart2_ready_ms) >= uart2_ready_interval_ms):
+                    serial_send("UART2_READY")
+                    last_uart2_ready_ms = now_ms
+
                 img = pl.get_frame()
                 res = yolo_det.run(img)
                 if (wireless_image is not None and
