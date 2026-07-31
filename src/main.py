@@ -1,6 +1,7 @@
 """K230 application entry point with Port2 owned by this module."""
 
 from machine import FPIOA, UART
+import time
 from imports.init import start
 
 
@@ -34,6 +35,9 @@ def port2_init():
     ))
     # Same physical-output test, now at the verified initialization point.
     port2.write(bytes([0x55]) * 256)
+    if hasattr(port2, "flush"):
+        port2.flush()
+    time.sleep_ms(2)
     port2_send("UART2_READY")
 
 
@@ -42,6 +46,11 @@ def port2_send(message):
         raise RuntimeError("Port2 used before media initialization")
     data = message + "\r\n"
     written = port2.write(data)
+    # Ensure the final stop bit reaches IO44 before the SPI worker resumes.
+    if hasattr(port2, "flush"):
+        port2.flush()
+    # Match tools/test/uart2_test.py: allow the driver/IRQ to drain TX.
+    time.sleep_ms(2)
     if written != len(data):
         print("Port2 short write: {}/{} bytes".format(written, len(data)))
 
