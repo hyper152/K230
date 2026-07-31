@@ -11,16 +11,16 @@ UART2_BAUDRATE = 115200
 
 
 port2 = None
+port2_fpioa = FPIOA()
 
 
 def port2_init():
-    """Initialize Port2 only after PipeLine/media initialization."""
+    """Create UART2 before media, matching commit 436da48."""
     global port2
     if port2 is not None:
         return
-    fpioa = FPIOA()
-    fpioa.set_function(UART2_TX_PIN, FPIOA.UART2_TXD)
-    fpioa.set_function(UART2_RX_PIN, FPIOA.UART2_RXD)
+    port2_fpioa.set_function(UART2_TX_PIN, FPIOA.UART2_TXD, oe=1)
+    port2_fpioa.set_function(UART2_RX_PIN, FPIOA.UART2_RXD, ie=1)
     port2 = UART(
         UART.UART2,
         baudrate=UART2_BAUDRATE,
@@ -30,15 +30,18 @@ def port2_init():
     )
     print("Port2 initialized in main: baudrate={} (IO{}=TX, IO{}=RX)".format(
         UART2_BAUDRATE,
-        fpioa.get_pin_num(FPIOA.UART2_TXD),
-        fpioa.get_pin_num(FPIOA.UART2_RXD),
+        port2_fpioa.get_pin_num(FPIOA.UART2_TXD),
+        port2_fpioa.get_pin_num(FPIOA.UART2_RXD),
     ))
-    # Same physical-output test, now at the verified initialization point.
-    port2.write(bytes([0x55]) * 256)
-    if hasattr(port2, "flush"):
-        port2.flush()
-    time.sleep_ms(2)
     port2_send("UART2_READY")
+
+
+def port2_media_ready():
+    """Reassert pin direction/mux after sensor.run(), without recreating UART."""
+    port2_fpioa.set_function(UART2_TX_PIN, FPIOA.UART2_TXD, oe=1)
+    port2_fpioa.set_function(UART2_RX_PIN, FPIOA.UART2_RXD, ie=1)
+    port2_send("UART2_MEDIA_READY")
+    print("Port2 mapping reasserted after media init")
 
 
 def port2_send(message):
@@ -55,8 +58,10 @@ def port2_send(message):
         print("Port2 short write: {}/{} bytes".format(written, len(data)))
 
 
+port2_init()
+
 try:
-    start(port2_init=port2_init, port2_send=port2_send)
+    start(port2_init=port2_media_ready, port2_send=port2_send)
 finally:
     if port2 is not None:
         port2.deinit()
