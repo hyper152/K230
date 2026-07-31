@@ -375,7 +375,7 @@ def send_wireless_image(spi, cs, ready, img):
     return True
 
 
-def run(port2_send=None):
+def run(port2_init=None, port2_send=None):
     # ------------------------------------------------------------------ #
     #  初始化摄像头 & PipeLine（参考正点原子官方例程）
     # ------------------------------------------------------------------ #
@@ -390,6 +390,10 @@ def run(port2_send=None):
     )
     pl.create(sensor=sensor)
     print("Using camera CSI{}".format(sensor_id))
+
+    # f36c451's verified order: initialize UART2 only after sensor.run().
+    if port2_init is not None:
+        port2_init()
 
     wireless_sensor = sensor if wireless_image_enable else None
 
