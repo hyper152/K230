@@ -17,9 +17,6 @@ import image
 import aidemo
 from machine import UART, SPI, Pin
 from machine import FPIOA
-from .uart_link import init_uart2 as init_uart2_link
-from .uart_link import deinit_uart
-from .uart_link import send_line
 from .wireless_image import AsyncWirelessImageSender
 from .config import *
 
@@ -34,6 +31,31 @@ def find_sensor():
     )
     print("Camera found on CSI{}".format(camera_sensor_id))
     return sensor, camera_sensor_id
+
+
+def init_uart2():
+    """按 13:00-14:00 期间已验证版本 f36c451 初始化 Port2。"""
+    if not uart2_enable:
+        return None
+    try:
+        fpioa = FPIOA()
+        fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD)
+        fpioa.set_function(uart2_rx_pin, FPIOA.UART2_RXD)
+        u2 = UART(UART.UART2, baudrate=uart2_baudrate,
+                  bits=UART.EIGHTBITS, parity=UART.PARITY_NONE,
+                  stop=UART.STOPBITS_ONE)
+        probe = "UART2_READY\r\n"
+        probe_written = u2.write(probe)
+        tx_pin = fpioa.get_pin_num(FPIOA.UART2_TXD)
+        rx_pin = fpioa.get_pin_num(FPIOA.UART2_RXD)
+        print("UART2 initialized: baudrate={} (IO{}=TX, IO{}=RX)".format(
+            uart2_baudrate, tx_pin, rx_pin))
+        print("UART2 startup probe: {}/{} bytes".format(
+            probe_written, len(probe)))
+        return u2
+    except Exception as exc:
+        print("UART2 init failed, fallback to REPL serial only: {}".format(exc))
+        return None
 
 
 class YOLOv12App(AIBase):
@@ -250,29 +272,6 @@ class YOLOv12App(AIBase):
         return 0, int(round(dh * 2 + 0.1)), 0, int(round(dw * 2 - 0.1))
 
 
-def init_uart2():
-    """按 ATK-DNK230D 官方例程初始化 PH2.0 接口2。"""
-    if not uart2_enable:
-        return None
-    try:
-        fpioa = FPIOA()
-        fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD)
-        fpioa.set_function(uart2_rx_pin, FPIOA.UART2_RXD)
-        u2 = UART(UART.UART2, baudrate=uart2_baudrate,
-                  bits=UART.EIGHTBITS, parity=UART.PARITY_NONE, stop=UART.STOPBITS_ONE)
-        probe = "UART2_READY\r\n"
-        probe_written = u2.write(probe)
-        tx_pin = fpioa.get_pin_num(FPIOA.UART2_TXD)
-        rx_pin = fpioa.get_pin_num(FPIOA.UART2_RXD)
-        print("UART2 initialized: baudrate={} (IO{}=TX, IO{}=RX)".format(
-            uart2_baudrate, tx_pin, rx_pin))
-        print("UART2 startup probe: {}/{} bytes".format(probe_written, len(probe)))
-        return u2
-    except Exception as exc:
-        print("UART2 init failed, fallback to REPL serial only: {}".format(exc))
-        return None
-
-
 def init_wireless_image():
     """初始化龙邱图传模块SPI链路（模式3，IO2握手）。"""
     if not wireless_image_enable:
@@ -419,8 +418,8 @@ def run():
 
     wireless_sensor = sensor if wireless_image_enable else None
 
-    # media/sensor 完成后，再按官方顺序映射 FPIOA 并创建 UART 对象。
-    uart2 = init_uart2_link(uart2_baudrate, uart2_tx_pin, uart2_rx_pin)
+    # UART2 is initialized after SPI so Port2 owns its final FPIOA mapping.
+    uart2 = None
     wireless_image = None
     if wireless_image_enable:
         try:
@@ -444,17 +443,24 @@ def run():
         except Exception as exc:
             print("Wireless image SPI init failed: {}".format(exc))
 
-    def serial_send(msg):
-        """Send the short position packet directly on UART2.
+    # Keep the verified f36c451 UART initialization as the final peripheral
+    # setup operation. This also reasserts IO44/IO45 after SPI construction.
+    uart2 = init_uart2()
 
-        CanMV's MicroPython thread scheduler is kept exclusively for the
-        relatively slow image/SPI worker.  Direct UART writes match the
-        previously verified Port2 implementation and avoid starvation of a
-        second worker thread.
-        """
-        echo = (serial_log_interval > 0 and
-                frame_count % serial_log_interval == 0)
-        send_line(uart2, msg, echo=echo)
+    def serial_send(msg):
+        """使用 f36c451 中已验证的 UART2 直接发送方式。"""
+        if uart2 is not None:
+            try:
+                data = msg + "\r\n"
+                written = uart2.write(data)
+                if written != len(data):
+                    print("UART2 short write: {}/{} bytes".format(
+                        written, len(data)))
+            except Exception as exc:
+                print("UART2 write failed: {}".format(exc))
+        if (serial_log_interval > 0 and
+                frame_count % serial_log_interval == 0):
+            print(msg)
 
     yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
                           rgb888p_size, display_size, debug_mode)
@@ -524,5 +530,9 @@ def run():
         if wireless_image is not None:
             wireless_image.deinit()
         pl.destroy()
-        deinit_uart(uart2)
+        if uart2 is not None:
+            try:
+                uart2.deinit()
+            except Exception:
+                pass
         print("钢球检测已停止")
