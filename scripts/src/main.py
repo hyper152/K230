@@ -304,8 +304,6 @@ class YOLOv12App(AIBase):
 def init_uart2():
     """初始化 UART2 硬件串口（IO44=TX, IO45=RX）。
 
-    在 pl.create() 之后调用，使 UART2 成为 IO44/45 的最后一次
-    FPIOA 配置，避免 media/sensor 初始化覆盖引脚复用。
     返回 UART 对象或 None。
     """
     if not uart2_enable:
@@ -317,7 +315,7 @@ def init_uart2():
         u2 = UART(UART.UART2, baudrate=uart2_baudrate,
                   bits=UART.EIGHTBITS, parity=UART.PARITY_NONE, stop=UART.STOPBITS_ONE)
         # 自检：发送一条测试消息，方便确认 port2 是否真的有输出
-        probe = b"UART2_MEDIA_READY\r\n"
+        probe = b"UART2_READY\r\n"
         probe_written = u2.write(probe)
         tx_pin = fpioa.get_pin_num(FPIOA.UART2_TXD)
         rx_pin = fpioa.get_pin_num(FPIOA.UART2_RXD)
@@ -331,6 +329,9 @@ def init_uart2():
 
 
 if __name__ == "__main__":
+    # UART 先初始化；这个顺序已验证不会阻塞 K230D 摄像头启动。
+    uart2 = init_uart2()
+
     # ------------------------------------------------------------------ #
     #  初始化摄像头 & PipeLine（参考正点原子官方例程）
     # ------------------------------------------------------------------ #
@@ -339,8 +340,14 @@ if __name__ == "__main__":
     pl.create(sensor=sensor)
     print("Using camera CSI{}".format(sensor_id))
 
-    # media/sensor 初始化完成后再配 UART2，确保 IO44/45 最终为 UART 功能。
-    uart2 = init_uart2()
+    # media/sensor 初始化后只重申引脚复用，不重复创建 UART 对象。
+    if uart2 is not None:
+        fpioa = FPIOA()
+        fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD, oe=1)
+        fpioa.set_function(uart2_rx_pin, FPIOA.UART2_RXD, ie=1)
+        probe = b"UART2_MEDIA_READY\r\n"
+        probe_written = uart2.write(probe)
+        print("UART2 media probe: {}/{} bytes".format(probe_written, len(probe)))
 
     def serial_send(msg):
         """同时输出到 REPL/调试串口和 UART2（如果已启用）。"""
