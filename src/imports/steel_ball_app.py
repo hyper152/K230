@@ -18,8 +18,8 @@ import aidemo
 from machine import UART, SPI, Pin
 from machine import FPIOA
 from .uart_link import init_uart2 as init_uart2_link
-from .uart_link import send_line as uart_send_line
 from .uart_link import deinit_uart
+from .uart_link import PriorityUartSender
 from .wireless_image import AsyncWirelessImageSender
 from .config import *
 
@@ -421,6 +421,7 @@ def run():
 
     # media/sensor 完成后，再按官方顺序映射 FPIOA 并创建 UART 对象。
     uart2 = init_uart2_link(uart2_baudrate, uart2_tx_pin, uart2_rx_pin)
+    uart_sender = PriorityUartSender(uart2)
     wireless_image = None
     if wireless_image_enable:
         try:
@@ -448,7 +449,9 @@ def run():
         # UART2 remains full-rate; REPL output is throttled independently.
         echo = (serial_log_interval > 0 and
                 frame_count % serial_log_interval == 0)
-        uart_send_line(uart2, msg, echo=echo)
+        uart_sender.submit(msg)
+        if echo:
+            print(msg)
 
     yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
                           rgb888p_size, display_size, debug_mode)
@@ -515,6 +518,7 @@ def run():
         print("Error:", e)
     finally:
         yolo_det.deinit()
+        uart_sender.deinit()
         if wireless_image is not None:
             wireless_image.deinit()
         pl.destroy()

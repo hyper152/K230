@@ -62,6 +62,9 @@ class WirelessImageSender:
         finally:
             self.cs.value(1)
         self._wait_level(self.ready, 0, 500)
+        # SPI/Wi-Fi transfer must not monopolize the interpreter; allow the
+        # dedicated UART position worker to run between 4 KB chunks.
+        sleep_ms(1)
 
     def _native_gray_bytes(self, frame):
         if not hasattr(image, "RGBP888"):
