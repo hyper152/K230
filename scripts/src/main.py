@@ -15,6 +15,8 @@ import nncase_runtime as nn
 import ulab.numpy as np
 import image
 import aidemo
+from machine import UART
+from machine import FPIOA
 
 from config import *
 
@@ -29,6 +31,11 @@ display_interval = 2
 # 串口与屏幕分开刷新：位置数据每帧输出，屏幕每 2 帧刷新
 serial_interval = 1
 verbose_serial = False
+
+# UART2 硬件串口（IO44=UART2_TXD, IO45=UART2_RXD）
+# 开：通过 UART2 把位置数据发给外部主控；关：仅走 REPL/调试串口
+uart2_enable = True
+uart2_baudrate = 115200
 
 # 模型 IO
 kmodel_path = "/sdcard/best.kmodel"
@@ -301,6 +308,29 @@ if __name__ == "__main__":
     pl.create(sensor=sensor)
     print("Using camera CSI{}".format(sensor_id))
 
+    # ------ 初始化 UART2 硬件串口（IO44/IO45） ------ #
+    uart2 = None
+    if uart2_enable:
+        try:
+            fpioa = FPIOA()
+            fpioa.set_function(44, FPIOA.UART2_TXD)
+            fpioa.set_function(45, FPIOA.UART2_RXD)
+            uart2 = UART(UART.UART2, baudrate=uart2_baudrate,
+                         bits=UART.EIGHTBITS, parity=UART.PARITY_NONE, stop=UART.STOPBITS_ONE)
+            print("UART2 initialized: baudrate={} (IO44=TX, IO45=RX)".format(uart2_baudrate))
+        except Exception as exc:
+            uart2 = None
+            print("UART2 init failed, fallback to REPL serial only: {}".format(exc))
+
+    def serial_send(msg):
+        """同时输出到 REPL/调试串口和 UART2（如果已启用）。"""
+        if uart2 is not None:
+            try:
+                uart2.write(msg + "\r\n")
+            except Exception:
+                pass
+        print(msg)
+
     yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
                           rgb888p_size, display_size, debug_mode)
     yolo_det.config_preprocess()
@@ -331,7 +361,7 @@ if __name__ == "__main__":
                     # 结果已按置信度排序，只输出最可信钢球，减少串口阻塞。
                     x, y, w, h, cls_id, score = res[0][:6]
                     position_cm = yolo_det.x_to_position_cm(x)
-                    print("BALL_POS_CM:{:.2f}".format(position_cm))
+                    serial_send("BALL_POS_CM:{:.2f}".format(position_cm))
 
                     if verbose_serial:
                         print("=== Frame {} | 检测到 {} 个钢珠 ===".format(frame_count, len(res)))
@@ -350,7 +380,7 @@ if __name__ == "__main__":
                             cx_disp, cy_disp, score
                         ))
                 elif output_serial:
-                    print("BALL_POS_CM:NA")
+                    serial_send("BALL_POS_CM:NA")
                     if verbose_serial:
                         print("=== Frame {} | 未检测到钢珠 ===".format(frame_count))
 
@@ -361,4 +391,9 @@ if __name__ == "__main__":
     finally:
         yolo_det.deinit()
         pl.destroy()
+        if uart2 is not None:
+            try:
+                uart2.deinit()
+            except Exception:
+                pass
         print("钢球检测已停止")
