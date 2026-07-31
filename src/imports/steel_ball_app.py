@@ -436,7 +436,9 @@ def run():
                 spi_phase=wireless_image_spi_phase,
                 compensate_bit_shift=wireless_image_compensate_bit_shift,
                 sensor=wireless_sensor,
-                sensor_channel=wireless_image_sensor_channel
+                sensor_channel=wireless_image_sensor_channel,
+                image_format=wireless_image_format,
+                jpeg_quality=wireless_image_jpeg_quality
             )
         except Exception as exc:
             print("Wireless image SPI init failed: {}".format(exc))

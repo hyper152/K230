@@ -208,6 +208,12 @@ class WirelessImageSender:
             self._write_chunk(wire[offset:offset + 4000])
         return True
 
+    def send_raw_bytes(self, raw):
+        """Send JPEG/PNG bytes directly; the PC tool detects their signature."""
+        for offset in range(0, len(raw), 4000):
+            self._write_chunk(raw[offset:offset + 4000])
+        return True
+
     def deinit(self):
         try:
             self.spi.deinit()
@@ -218,10 +224,13 @@ class WirelessImageSender:
 class AsyncWirelessImageSender:
     """Latest-frame-only image pipeline running SPI work in a worker thread."""
 
-    def __init__(self, sensor=None, sensor_channel=1, **kwargs):
+    def __init__(self, sensor=None, sensor_channel=1, image_format="gray",
+                 jpeg_quality=45, **kwargs):
         self.sender = WirelessImageSender(**kwargs)
         self.sensor = sensor
         self.sensor_channel = sensor_channel
+        self.image_format = image_format.lower()
+        self.jpeg_quality = jpeg_quality
         self._lock = _thread.allocate_lock()
         self._pending = None
         self._running = True
@@ -232,8 +241,24 @@ class AsyncWirelessImageSender:
         self.snapshot_us = 0
         self.copy_us = 0
         self.send_us = 0
+        self.jpeg_bytes = 0
         _thread.start_new_thread(self._worker, ())
-        print("Wireless image worker started")
+        print("Wireless image worker started: format={}, jpeg_quality={}".format(
+            self.image_format, self.jpeg_quality))
+
+    @staticmethod
+    def _jpeg_bytes(jpeg_img):
+        # OpenMV-compatible firmwares expose bytearray(); keep two fallbacks
+        # for CanMV builds with a slightly different image binding.
+        if hasattr(jpeg_img, "bytearray"):
+            data = jpeg_img.bytearray()
+        elif hasattr(jpeg_img, "to_bytes"):
+            data = jpeg_img.to_bytes()
+        else:
+            data = bytes(jpeg_img)
+        if len(data) < 4 or data[0] != 0xFF or data[1] != 0xD8:
+            raise ValueError("invalid JPEG buffer, size={}".format(len(data)))
+        return data
 
     @staticmethod
     def _copy_green_plane(frame):
@@ -292,19 +317,28 @@ class AsyncWirelessImageSender:
                         stage_start = ticks_us()
                         gray_img = self.sensor.snapshot(chn=self.sensor_channel)
                         snapshot_done = ticks_us()
-                        gray_np = gray_img.to_numpy_ref()
-                        raw = bytes(gray_np)
-                        copy_done = ticks_us()
-                        expected = self.sender.width * self.sender.height
-                        if len(raw) != expected:
-                            raise ValueError("hardware gray frame size is {}, expected {}".format(
-                                len(raw), expected))
-                        self.sender.send_gray_bytes(raw)
+                        if self.image_format == "jpeg":
+                            jpeg_img = gray_img.compressed(
+                                quality=self.jpeg_quality)
+                            raw = self._jpeg_bytes(jpeg_img)
+                            copy_done = ticks_us()
+                            self.sender.send_raw_bytes(raw)
+                            self.jpeg_bytes += len(raw)
+                            del jpeg_img
+                        else:
+                            gray_np = gray_img.to_numpy_ref()
+                            raw = bytes(gray_np)
+                            copy_done = ticks_us()
+                            expected = self.sender.width * self.sender.height
+                            if len(raw) != expected:
+                                raise ValueError("hardware gray frame size is {}, expected {}".format(
+                                    len(raw), expected))
+                            self.sender.send_gray_bytes(raw)
+                            del gray_np
                         send_done = ticks_us()
                         self.snapshot_us += ticks_diff(snapshot_done, stage_start)
                         self.copy_us += ticks_diff(copy_done, snapshot_done)
                         self.send_us += ticks_diff(send_done, copy_done)
-                        del gray_np
                         del gray_img
                     else:
                         self.sender.send_green_plane(item[0], item[1], item[2])
@@ -325,9 +359,12 @@ class AsyncWirelessImageSender:
         print("Wireless image worker stopped: submitted={}, sent={}, dropped={}".format(
             self.submitted, self.sent, self.dropped))
         if self.sent > 0 and self.sensor is not None:
-            print("Wireless image avg ms: snapshot={:.1f}, copy={:.1f}, spi={:.1f}, total={:.1f}".format(
+            print("Wireless image avg ms: snapshot={:.1f}, encode={:.1f}, spi={:.1f}, total={:.1f}".format(
                 self.snapshot_us / self.sent / 1000,
                 self.copy_us / self.sent / 1000,
                 self.send_us / self.sent / 1000,
                 (self.snapshot_us + self.copy_us + self.send_us) /
                 self.sent / 1000))
+            if self.image_format == "jpeg":
+                print("Wireless image JPEG avg bytes: {:.0f}".format(
+                    self.jpeg_bytes / self.sent))
