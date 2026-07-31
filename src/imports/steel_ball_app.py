@@ -19,7 +19,7 @@ from machine import UART, SPI, Pin
 from machine import FPIOA
 from .uart_link import init_uart2 as init_uart2_link
 from .uart_link import deinit_uart
-from .uart_link import PriorityUartSender
+from .uart_link import send_line
 from .wireless_image import AsyncWirelessImageSender
 from .config import *
 
@@ -421,7 +421,6 @@ def run():
 
     # media/sensor 完成后，再按官方顺序映射 FPIOA 并创建 UART 对象。
     uart2 = init_uart2_link(uart2_baudrate, uart2_tx_pin, uart2_rx_pin)
-    uart_sender = PriorityUartSender(uart2)
     wireless_image = None
     if wireless_image_enable:
         try:
@@ -446,13 +445,16 @@ def run():
             print("Wireless image SPI init failed: {}".format(exc))
 
     def serial_send(msg):
-        """同时输出到 REPL/调试串口和 UART2（如果已启用）。"""
-        # UART2 remains full-rate; REPL output is throttled independently.
+        """Send the short position packet directly on UART2.
+
+        CanMV's MicroPython thread scheduler is kept exclusively for the
+        relatively slow image/SPI worker.  Direct UART writes match the
+        previously verified Port2 implementation and avoid starvation of a
+        second worker thread.
+        """
         echo = (serial_log_interval > 0 and
                 frame_count % serial_log_interval == 0)
-        uart_sender.submit(msg)
-        if echo:
-            print(msg)
+        send_line(uart2, msg, echo=echo)
 
     yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
                           rgb888p_size, display_size, debug_mode)
@@ -519,7 +521,6 @@ def run():
         print("Error:", e)
     finally:
         yolo_det.deinit()
-        uart_sender.deinit()
         if wireless_image is not None:
             wireless_image.deinit()
         pl.destroy()
