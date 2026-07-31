@@ -21,7 +21,9 @@ uart2_tx_pin = 44
 uart2_rx_pin = 45
 
 # LongQiu wireless image module
-wireless_image_enable = True
+# SPI(1) image transmission conflicts with the verified UART2 Port2 path on
+# this CanMV firmware. Keep it disabled while Port2 position output is active.
+wireless_image_enable = False
 # Submit every inference frame. The asynchronous sender keeps only the newest
 # pending frame, so a slow network can no longer stall detection.
 wireless_image_interval = 1
