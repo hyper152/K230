@@ -1,4 +1,4 @@
-"""K230 钢球检测推理入口
+"""K230 steel-ball detection application.
 
 依赖 K230 nncase runtime 环境，在 K230 开发板上运行。
 """
@@ -15,76 +15,25 @@ import nncase_runtime as nn
 import ulab.numpy as np
 import image
 import aidemo
-from machine import UART
+from machine import UART, SPI, Pin
 from machine import FPIOA
-
-from config import *
-
-# ========== 所有参数统一在此定义（覆盖 config.py） ==========
-
-# 显示
-display_mode = "lcd"
-rgb888p_size = [320, 320]
-display_size = [640, 480]
-display_interval = 2
-
-# 串口与屏幕分开刷新：位置数据每帧输出，屏幕每 2 帧刷新
-serial_interval = 1
-verbose_serial = False
-
-# UART2 硬件串口（IO44=UART2_TXD, IO45=UART2_RXD）
-# 开：通过 UART2 把位置数据发给外部主控；关：仅走 REPL/调试串口
-uart2_enable = True
-uart2_baudrate = 115200
-uart2_tx_pin = 44
-uart2_rx_pin = 45
-
-# 模型 IO
-kmodel_path = "/sdcard/best.kmodel"
-model_input_size = [320, 320]
-anchors = None
-
-# 检测阈值
-confidence_threshold = 0.75
-nms_threshold = 0.35
-detect_threshold = 0.75
-
-# 时序平滑
-max_miss_count = 4
-smooth_alpha = 0.65
-
-# 钢球运动范围：画面最左端为 0 cm，最右端为 25 cm
-track_length_cm = 25.0
-
-# 调试
-debug_mode = 0
-
-# 传感器
-sensor_width = 1280
-sensor_height = 720
+from .uart_link import init_uart2 as init_uart2_link
+from .uart_link import send_line as uart_send_line
+from .uart_link import deinit_uart
+from .wireless_image import WirelessImageSender
+from .config import *
 
 
 def find_sensor():
     """扫描 CSI0~CSI2，返回第一个可用的摄像头对象和编号。"""
-    errors = []
-    for sensor_id in range(3):
-        try:
-            print("Scanning camera on CSI{}...".format(sensor_id))
-            sensor = Sensor(
-                id=sensor_id,
-                width=sensor_width,
-                height=sensor_height
-            )
-            print("Camera found on CSI{}".format(sensor_id))
-            return sensor, sensor_id
-        except Exception as exc:
-            errors.append("CSI{}: {}".format(sensor_id, exc))
-            print("No camera on CSI{}: {}".format(sensor_id, exc))
-            gc.collect()
-
-    raise RuntimeError(
-        "No camera found on CSI0~CSI2; " + "; ".join(errors)
+    print("Initializing camera on CSI{}...".format(camera_sensor_id))
+    sensor = Sensor(
+        id=camera_sensor_id,
+        width=sensor_width,
+        height=sensor_height
     )
+    print("Camera found on CSI{}".format(camera_sensor_id))
+    return sensor, camera_sensor_id
 
 
 class YOLOv12App(AIBase):
@@ -324,7 +273,135 @@ def init_uart2():
         return None
 
 
-if __name__ == "__main__":
+def init_wireless_image():
+    """初始化龙邱图传模块SPI链路（模式3，IO2握手）。"""
+    if not wireless_image_enable:
+        return None
+    try:
+        fpioa = FPIOA()
+        fpioa.set_function(wireless_image_cs_pin, FPIOA.GPIO19)
+        fpioa.set_function(wireless_image_clk_pin, FPIOA.QSPI0_CLK)
+        fpioa.set_function(wireless_image_mosi_pin, FPIOA.QSPI0_D0)
+        fpioa.set_function(wireless_image_miso_pin, FPIOA.QSPI0_D1)
+        fpioa.set_function(wireless_image_ready_pin, FPIOA.GPIO18)
+
+        cs = Pin(wireless_image_cs_pin, Pin.OUT, pull=Pin.PULL_NONE, drive=15)
+        # 官方龙邱例程将 IO2 配置为浮空输入；模块主动输出握手电平。
+        # 使用内部下拉可能使 IO2 无法可靠读到就绪高电平。
+        ready = Pin(wireless_image_ready_pin, Pin.IN, pull=Pin.PULL_NONE)
+        cs.value(1)
+        spi = SPI(1, baudrate=wireless_image_spi_baudrate,
+                  polarity=1, phase=0, bits=8)
+        print("Wireless image SPI initialized: CS={}, CLK={}, MOSI={}, MISO={}, IO2={}".format(
+            wireless_image_cs_pin, wireless_image_clk_pin,
+            wireless_image_mosi_pin, wireless_image_miso_pin,
+            wireless_image_ready_pin))
+        print("Wireless image IO2 initial level: {}".format(ready.value()))
+        return spi, cs, ready
+    except Exception as exc:
+        print("Wireless image SPI init failed: {}".format(exc))
+        return None
+
+
+def wait_pin_level(pin, target, timeout_us=20000):
+    """以50 us轮询握手线，超时返回False。"""
+    elapsed = 0
+    while pin.value() != target:
+        if elapsed >= timeout_us:
+            return False
+        sleep_us(50)
+        elapsed += 50
+    return True
+
+
+def send_wireless_chunk(spi, cs, ready, data):
+    """遵循模块IO2握手发送一个不超过4000字节的分块。"""
+    wait_pin_level(ready, 1, 500)
+    cs.value(0)
+    try:
+        spi.write(data)
+    finally:
+        cs.value(1)
+    wait_pin_level(ready, 0, 500)
+    # 官方例程的结束握手等待是无返回值的：即使未观察到低电平，
+    # 也继续发送下一块。模块的低脉冲可能在 spi.write() 返回前结束，
+    # Python 轮询因此可能只看到已经恢复的高电平。
+    wait_pin_level(ready, 0, 500)
+    return True
+
+
+def send_wireless_image(spi, cs, ready, img):
+    """发送龙邱协议的188x120灰度原始图像。"""
+    pixel_count = wireless_image_width * wireless_image_height
+    frame = bytearray(pixel_count + 8)
+    frame[0:4] = b"\xA0\xFF\xFF\xA0"
+
+    index = 4
+    if hasattr(img, "to_grayscale"):
+        gray = img.to_grayscale(copy=True)
+        src_w = gray.width()
+        src_h = gray.height()
+        for row in range(wireless_image_height):
+            src_y = row * src_h // wireless_image_height
+            for col in range(wireless_image_width):
+                src_x = col * src_w // wireless_image_width
+                frame[index] = gray.get_pixel(src_x, src_y)
+                index += 1
+        del gray
+    else:
+        # PipeLine.get_frame() returns an RGB888P NCHW ndarray.
+        shape = img.shape
+        if len(shape) == 4:
+            src_h = shape[2]
+            src_w = shape[3]
+            for row in range(wireless_image_height):
+                src_y = row * src_h // wireless_image_height
+                for col in range(wireless_image_width):
+                    src_x = col * src_w // wireless_image_width
+                    r = int(img[0, 0, src_y, src_x])
+                    g = int(img[0, 1, src_y, src_x])
+                    b = int(img[0, 2, src_y, src_x])
+                    frame[index] = (77 * r + 150 * g + 29 * b) >> 8
+                    index += 1
+        elif len(shape) == 3:
+            src_h = shape[1]
+            src_w = shape[2]
+            for row in range(wireless_image_height):
+                src_y = row * src_h // wireless_image_height
+                for col in range(wireless_image_width):
+                    src_x = col * src_w // wireless_image_width
+                    r = int(img[0, src_y, src_x])
+                    g = int(img[1, src_y, src_x])
+                    b = int(img[2, src_y, src_x])
+                    frame[index] = (77 * r + 150 * g + 29 * b) >> 8
+                    index += 1
+        else:
+            raise ValueError("unsupported camera ndarray shape: {}".format(shape))
+
+    frame[index:index + 4] = b"\xB0\xB0\x0A\x0D"
+
+    # This module/K230 wiring combination samples the SPI stream one bit late:
+    # received[i] = previous_tx_lsb << 7 | tx[i] >> 1.
+    # Pre-shift the complete stream and add one sacrificial sync byte so the
+    # receiver reconstructs frame[] exactly, including its four-byte header.
+    total = len(frame)
+    wire = bytearray(total + 1)
+    wire[0] = 0x01
+    for i in range(total):
+        next_byte = frame[i + 1] if i + 1 < total else frame[0]
+        wire[i + 1] = ((frame[i] << 1) & 0xFE) | (next_byte >> 7)
+
+    offset = 0
+    wire_total = len(wire)
+    while offset < wire_total:
+        end = min(offset + 4000, wire_total)
+        if not send_wireless_chunk(spi, cs, ready, wire[offset:end]):
+            return False
+        offset = end
+    return True
+
+
+def run():
     # ------------------------------------------------------------------ #
     #  初始化摄像头 & PipeLine（参考正点原子官方例程）
     # ------------------------------------------------------------------ #
@@ -334,19 +411,26 @@ if __name__ == "__main__":
     print("Using camera CSI{}".format(sensor_id))
 
     # media/sensor 完成后，再按官方顺序映射 FPIOA 并创建 UART 对象。
-    uart2 = init_uart2()
+    uart2 = init_uart2_link(uart2_baudrate, uart2_tx_pin, uart2_rx_pin)
+    wireless_image = None
+    if wireless_image_enable:
+        try:
+            wireless_image = WirelessImageSender(
+                width=wireless_image_width,
+                height=wireless_image_height,
+                baudrate=wireless_image_spi_baudrate,
+                cs_pin=wireless_image_cs_pin,
+                clk_pin=wireless_image_clk_pin,
+                mosi_pin=wireless_image_mosi_pin,
+                miso_pin=wireless_image_miso_pin,
+                ready_pin=wireless_image_ready_pin
+            )
+        except Exception as exc:
+            print("Wireless image SPI init failed: {}".format(exc))
 
     def serial_send(msg):
         """同时输出到 REPL/调试串口和 UART2（如果已启用）。"""
-        if uart2 is not None:
-            try:
-                data = msg + "\r\n"
-                written = uart2.write(data)
-                if written != len(data):
-                    print("UART2 short write: {}/{} bytes".format(written, len(data)))
-            except Exception as exc:
-                print("UART2 write failed: {}".format(exc))
-        print(msg)
+        uart_send_line(uart2, msg)
 
     yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
                           rgb888p_size, display_size, debug_mode)
@@ -366,6 +450,12 @@ if __name__ == "__main__":
             with ScopedTiming("total", 0):
                 img = pl.get_frame()
                 res = yolo_det.run(img)
+                if (wireless_image is not None and
+                        frame_count % wireless_image_interval == 0):
+                    try:
+                        wireless_image.send(img)
+                    except Exception as exc:
+                        print("Wireless image send failed: {}".format(exc))
                 # 每帧推理；屏幕刷新与串口数据输出使用独立节拍。
                 output_frame = frame_count % display_interval == 0
                 output_serial = frame_count % serial_interval == 0
@@ -408,9 +498,7 @@ if __name__ == "__main__":
     finally:
         yolo_det.deinit()
         pl.destroy()
-        if uart2 is not None:
-            try:
-                uart2.deinit()
-            except Exception:
-                pass
+        deinit_uart(uart2)
+        if wireless_image is not None:
+            wireless_image.deinit()
         print("钢球检测已停止")
