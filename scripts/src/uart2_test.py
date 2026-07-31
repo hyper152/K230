@@ -23,13 +23,14 @@ uart2 = UART(
     stop=UART.STOPBITS_ONE,
 )
 
-counter = 0
+# 0x55 的数据位为 01010101，连续发送时示波器上会形成清晰、稳定的方波。
+# 115200 波特率下，相邻翻转间隔约 8.68 us，方波频率约 57.6 kHz。
+pattern = bytes([0x55]) * 256
 try:
     while True:
-        data = "UART2_TEST:{}\r\n".format(counter)
-        written = uart2.write(data)
-        print("write {}/{} bytes: {}".format(written, len(data), data))
-        counter += 1
-        time.sleep_ms(500)
+        written = uart2.write(pattern)
+        if written != len(pattern):
+            print("UART2 short write: {}/{}".format(written, len(pattern)))
+        time.sleep_ms(2)
 finally:
     uart2.deinit()
