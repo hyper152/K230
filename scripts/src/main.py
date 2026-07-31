@@ -36,6 +36,8 @@ verbose_serial = False
 # 开：通过 UART2 把位置数据发给外部主控；关：仅走 REPL/调试串口
 uart2_enable = True
 uart2_baudrate = 115200
+uart2_tx_pin = 44
+uart2_rx_pin = 45
 
 # 模型 IO
 kmodel_path = "/sdcard/best.kmodel"
@@ -309,13 +311,18 @@ def init_uart2():
         return None
     try:
         fpioa = FPIOA()
-        fpioa.set_function(44, FPIOA.UART2_TXD)
-        fpioa.set_function(45, FPIOA.UART2_RXD)
+        fpioa.set_function(uart2_tx_pin, FPIOA.UART2_TXD, oe=1)
+        fpioa.set_function(uart2_rx_pin, FPIOA.UART2_RXD, ie=1)
         u2 = UART(UART.UART2, baudrate=uart2_baudrate,
                   bits=UART.EIGHTBITS, parity=UART.PARITY_NONE, stop=UART.STOPBITS_ONE)
         # 自检：发送一条测试消息，方便确认 port2 是否真的有输出
-        u2.write("UART2_OK\r\n")
-        print("UART2 initialized: baudrate={} (IO44=TX, IO45=RX)".format(uart2_baudrate))
+        probe = b"UART2_OK\r\n"
+        probe_written = u2.write(probe)
+        tx_pin = fpioa.get_pin_num(FPIOA.UART2_TXD)
+        rx_pin = fpioa.get_pin_num(FPIOA.UART2_RXD)
+        print("UART2 initialized: baudrate={} (IO{}=TX, IO{}=RX)".format(
+            uart2_baudrate, tx_pin, rx_pin))
+        print("UART2 startup probe: {}/{} bytes".format(probe_written, len(probe)))
         return u2
     except Exception as exc:
         print("UART2 init failed, fallback to REPL serial only: {}".format(exc))
@@ -340,9 +347,12 @@ if __name__ == "__main__":
         """同时输出到 REPL/调试串口和 UART2（如果已启用）。"""
         if uart2 is not None:
             try:
-                uart2.write(msg + "\r\n")
-            except Exception:
-                pass
+                data = (msg + "\r\n").encode()
+                written = uart2.write(data)
+                if written != len(data):
+                    print("UART2 short write: {}/{} bytes".format(written, len(data)))
+            except Exception as exc:
+                print("UART2 write failed: {}".format(exc))
         print(msg)
 
     yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
