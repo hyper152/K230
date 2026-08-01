@@ -3,25 +3,19 @@
 依赖 K230 nncase runtime 环境，在 K230 开发板上运行。
 """
 
-from .PipeLine import PipeLine, ScopedTiming
+from .PipeLine import ScopedTiming
 from libs.AIBase import AIBase
 from libs.AI2D import Ai2d
-import os, gc
 from media.media import *
 from media.sensor import *
 from media.display import *
-from time import *
 import nncase_runtime as nn
 import ulab.numpy as np
 import image
-import aidemo
 from .config import *
 
-# 只在明确启用图传时才导入 SPI 及其依赖，关闭时不占用任何 SPI 资源。
-if wireless_image_enable:
-    from machine import SPI, Pin, FPIOA
-    from .wireless_image import AsyncWirelessImageSender
-
+# 关闭控制台输出，避免日志格式化和 USB 串口输出占用实时循环。
+print = lambda *args, **kwargs: None
 
 def find_sensor():
     """扫描 CSI0~CSI2，返回第一个可用的摄像头对象和编号。"""
@@ -29,7 +23,8 @@ def find_sensor():
     sensor = Sensor(
         id=camera_sensor_id,
         width=sensor_width,
-        height=sensor_height
+        height=sensor_height,
+        fps=sensor_fps
     )
     print("Camera found on CSI{}".format(camera_sensor_id))
     return sensor, camera_sensor_id
@@ -226,6 +221,44 @@ class YOLOv12App(AIBase):
                 0, 36, 32, ball_pos_text, color=(255, 0, 255, 0)
             )
 
+            # 屏幕底部刻度与 x_to_position_cm() 使用同一组标定参数。
+            # 标尺端点分别对应输出位置 0 cm 和 track_length_cm。
+            scale_y = self.display_size[1] - 10
+            raw_start_x = (position_calibration_min_cm / track_length_cm
+                           * self.rgb888p_size[0])
+            raw_end_x = (position_calibration_max_cm / track_length_cm
+                         * self.rgb888p_size[0])
+            scale_start_x = int(raw_start_x * self.display_size[0]
+                                / self.rgb888p_size[0])
+            scale_end_x = int(raw_end_x * self.display_size[0]
+                              / self.rgb888p_size[0])
+            scale_width = scale_end_x - scale_start_x
+            scale_color = (255, 255, 255, 255)
+
+            if scale_width > 0:
+                pl.osd_img.draw_rectangle(
+                    scale_start_x, scale_y, scale_width, 2,
+                    color=scale_color, fill=True
+                )
+                tick_cm = 0
+                while tick_cm <= int(track_length_cm):
+                    tick_x = scale_start_x + int(
+                        tick_cm * scale_width / track_length_cm
+                    )
+                    tick_height = 12 if tick_cm % 5 == 0 else 6
+                    pl.osd_img.draw_rectangle(
+                        tick_x, scale_y - tick_height, 2, tick_height,
+                        color=scale_color, fill=True
+                    )
+                    if tick_cm % 5 == 0:
+                        label_x = max(0, min(self.display_size[0] - 36,
+                                             tick_x - 10))
+                        pl.osd_img.draw_string_advanced(
+                            label_x, scale_y - 34, 20,
+                            str(tick_cm), color=scale_color
+                        )
+                    tick_cm += 1
+
             if dets:
                 for det in dets:
                     x, y, w, h = map(lambda v: int(round(v, 0)), det[:4])
@@ -260,265 +293,3 @@ class YOLOv12App(AIBase):
         new_h = int(ratio * self.rgb888p_size[1])
         dw, dh = (dst_w - new_w) / 2, (dst_h - new_h) / 2
         return 0, int(round(dh * 2 + 0.1)), 0, int(round(dw * 2 - 0.1))
-
-
-def init_wireless_image():
-    """初始化龙邱图传模块SPI链路（模式3，IO2握手）。"""
-    if not wireless_image_enable:
-        return None
-    try:
-        fpioa = FPIOA()
-        fpioa.set_function(wireless_image_cs_pin, FPIOA.GPIO19)
-        fpioa.set_function(wireless_image_clk_pin, FPIOA.QSPI0_CLK)
-        fpioa.set_function(wireless_image_mosi_pin, FPIOA.QSPI0_D0)
-        fpioa.set_function(wireless_image_miso_pin, FPIOA.QSPI0_D1)
-        fpioa.set_function(wireless_image_ready_pin, FPIOA.GPIO18)
-
-        cs = Pin(wireless_image_cs_pin, Pin.OUT, pull=Pin.PULL_NONE, drive=15)
-        # 官方龙邱例程将 IO2 配置为浮空输入；模块主动输出握手电平。
-        # 使用内部下拉可能使 IO2 无法可靠读到就绪高电平。
-        ready = Pin(wireless_image_ready_pin, Pin.IN, pull=Pin.PULL_NONE)
-        cs.value(1)
-        spi = SPI(1, baudrate=wireless_image_spi_baudrate,
-                  polarity=1, phase=0, bits=8)
-        print("Wireless image SPI initialized: CS={}, CLK={}, MOSI={}, MISO={}, IO2={}".format(
-            wireless_image_cs_pin, wireless_image_clk_pin,
-            wireless_image_mosi_pin, wireless_image_miso_pin,
-            wireless_image_ready_pin))
-        print("Wireless image IO2 initial level: {}".format(ready.value()))
-        return spi, cs, ready
-    except Exception as exc:
-        print("Wireless image SPI init failed: {}".format(exc))
-        return None
-
-
-def wait_pin_level(pin, target, timeout_us=20000):
-    """以50 us轮询握手线，超时返回False。"""
-    elapsed = 0
-    while pin.value() != target:
-        if elapsed >= timeout_us:
-            return False
-        sleep_us(50)
-        elapsed += 50
-    return True
-
-
-def send_wireless_chunk(spi, cs, ready, data):
-    """遵循模块IO2握手发送一个不超过4000字节的分块。"""
-    wait_pin_level(ready, 1, 500)
-    cs.value(0)
-    try:
-        spi.write(data)
-    finally:
-        cs.value(1)
-    wait_pin_level(ready, 0, 500)
-    # 官方例程的结束握手等待是无返回值的：即使未观察到低电平，
-    # 也继续发送下一块。模块的低脉冲可能在 spi.write() 返回前结束，
-    # Python 轮询因此可能只看到已经恢复的高电平。
-    wait_pin_level(ready, 0, 500)
-    return True
-
-
-def send_wireless_image(spi, cs, ready, img):
-    """发送龙邱协议的188x120灰度原始图像。"""
-    pixel_count = wireless_image_width * wireless_image_height
-    frame = bytearray(pixel_count + 8)
-    frame[0:4] = b"\xA0\xFF\xFF\xA0"
-
-    index = 4
-    if hasattr(img, "to_grayscale"):
-        gray = img.to_grayscale(copy=True)
-        src_w = gray.width()
-        src_h = gray.height()
-        for row in range(wireless_image_height):
-            src_y = row * src_h // wireless_image_height
-            for col in range(wireless_image_width):
-                src_x = col * src_w // wireless_image_width
-                frame[index] = gray.get_pixel(src_x, src_y)
-                index += 1
-        del gray
-    else:
-        # PipeLine.get_frame() returns an RGB888P NCHW ndarray.
-        shape = img.shape
-        if len(shape) == 4:
-            src_h = shape[2]
-            src_w = shape[3]
-            for row in range(wireless_image_height):
-                src_y = row * src_h // wireless_image_height
-                for col in range(wireless_image_width):
-                    src_x = col * src_w // wireless_image_width
-                    r = int(img[0, 0, src_y, src_x])
-                    g = int(img[0, 1, src_y, src_x])
-                    b = int(img[0, 2, src_y, src_x])
-                    frame[index] = (77 * r + 150 * g + 29 * b) >> 8
-                    index += 1
-        elif len(shape) == 3:
-            src_h = shape[1]
-            src_w = shape[2]
-            for row in range(wireless_image_height):
-                src_y = row * src_h // wireless_image_height
-                for col in range(wireless_image_width):
-                    src_x = col * src_w // wireless_image_width
-                    r = int(img[0, src_y, src_x])
-                    g = int(img[1, src_y, src_x])
-                    b = int(img[2, src_y, src_x])
-                    frame[index] = (77 * r + 150 * g + 29 * b) >> 8
-                    index += 1
-        else:
-            raise ValueError("unsupported camera ndarray shape: {}".format(shape))
-
-    frame[index:index + 4] = b"\xB0\xB0\x0A\x0D"
-
-    # This module/K230 wiring combination samples the SPI stream one bit late:
-    # received[i] = previous_tx_lsb << 7 | tx[i] >> 1.
-    # Pre-shift the complete stream and add one sacrificial sync byte so the
-    # receiver reconstructs frame[] exactly, including its four-byte header.
-    total = len(frame)
-    wire = bytearray(total + 1)
-    wire[0] = 0x01
-    for i in range(total):
-        next_byte = frame[i + 1] if i + 1 < total else frame[0]
-        wire[i + 1] = ((frame[i] << 1) & 0xFE) | (next_byte >> 7)
-
-    offset = 0
-    wire_total = len(wire)
-    while offset < wire_total:
-        end = min(offset + 4000, wire_total)
-        if not send_wireless_chunk(spi, cs, ready, wire[offset:end]):
-            return False
-        offset = end
-    return True
-
-
-def run(port2_init=None, port2_send=None):
-    # ------------------------------------------------------------------ #
-    #  初始化摄像头 & PipeLine（参考正点原子官方例程）
-    # ------------------------------------------------------------------ #
-    sensor, sensor_id = find_sensor()
-    pl = PipeLine(
-        rgb888p_size=rgb888p_size,
-        display_size=display_size,
-        display_mode=display_mode,
-        gray_size=[wireless_image_width, wireless_image_height]
-                  if wireless_image_enable else None,
-        gray_channel=wireless_image_sensor_channel
-    )
-    pl.create(sensor=sensor)
-    print("Using camera CSI{}".format(sensor_id))
-
-    # 按已验证的初始化顺序：摄像头启动后再配置 UART2。
-    if port2_init is not None:
-        port2_init()
-
-    wireless_sensor = sensor if wireless_image_enable else None
-
-    wireless_image = None
-    if wireless_image_enable:
-        try:
-            wireless_image = AsyncWirelessImageSender(
-                width=wireless_image_width,
-                height=wireless_image_height,
-                baudrate=wireless_image_spi_baudrate,
-                cs_pin=wireless_image_cs_pin,
-                clk_pin=wireless_image_clk_pin,
-                mosi_pin=wireless_image_mosi_pin,
-                miso_pin=wireless_image_miso_pin,
-                ready_pin=wireless_image_ready_pin,
-                spi_phase=wireless_image_spi_phase,
-                compensate_bit_shift=wireless_image_compensate_bit_shift,
-                sensor=wireless_sensor,
-                sensor_channel=wireless_image_sensor_channel,
-                sensor_lock=pl.snapshot_lock,
-                image_format=wireless_image_format,
-                jpeg_quality=wireless_image_jpeg_quality
-            )
-        except Exception as exc:
-            print("Wireless image SPI init failed: {}".format(exc))
-
-    def serial_send(msg):
-        """将位置交给 main.py 拥有的 Port2 发送函数。"""
-        if port2_send is not None:
-            try:
-                port2_send(msg)
-            except Exception as exc:
-                print("Port2 write failed: {}".format(exc))
-        if (serial_log_interval > 0 and
-                frame_count % serial_log_interval == 0):
-            print(msg)
-
-    yolo_det = YOLOv12App(kmodel_path, model_input_size, anchors,
-                          rgb888p_size, display_size, debug_mode)
-    yolo_det.config_preprocess()
-
-    print("=" * 50)
-    print("K230D 钢球检测启动")
-    print("显示模式:", display_mode)
-    print("检测阈值: conf={}, nms={}".format(confidence_threshold, nms_threshold))
-    print("=" * 50)
-
-    frame_count = 0
-    last_uart2_ready_ms = ticks_ms()
-    try:
-        while True:
-            frame_count += 1
-            os.exitpoint()
-            with ScopedTiming("total", 0):
-                now_ms = ticks_ms()
-                if (port2_send is not None and
-                        ticks_diff(now_ms, last_uart2_ready_ms) >= uart2_ready_interval_ms):
-                    serial_send("UART2_READY")
-                    last_uart2_ready_ms = now_ms
-
-                img = pl.get_frame()
-                res = yolo_det.run(img)
-                if (wireless_image is not None and
-                        frame_count % wireless_image_interval == 0):
-                    try:
-                        wireless_image.submit(img)
-                    except Exception as exc:
-                        print("Wireless image send failed: {}".format(exc))
-                # 每帧推理；屏幕刷新与串口数据输出使用独立节拍。
-                output_frame = frame_count % display_interval == 0
-                output_serial = frame_count % serial_interval == 0
-                if output_frame:
-                    yolo_det.draw_result(pl, res)
-                    pl.show_image()
-
-                # ------ 串口输出钢珠检测结果 ------ #
-                if len(res) > 0 and output_serial:
-                    # 结果已按置信度排序，只输出最可信钢球，减少串口阻塞。
-                    x, y, w, h, cls_id, score = res[0][:6]
-                    position_cm = yolo_det.x_to_position_cm(x)
-                    serial_send("BALL_POS_CM:{:.2f}".format(position_cm))
-
-                    if verbose_serial:
-                        print("=== Frame {} | 检测到 {} 个钢珠 ===".format(frame_count, len(res)))
-                        # 图像坐标系（模型输入空间）中的中心坐标和宽高
-                        cx_img = round(x, 1)
-                        cy_img = round(y, 1)
-                        w_img = round(w, 1)
-                        h_img = round(h, 1)
-                        # 换算到显示坐标系
-                        cx_disp = int(x * display_size[0] // rgb888p_size[0])
-                        cy_disp = int(y * display_size[1] // rgb888p_size[1])
-                        print("  Ball#0: center=({}, {})  size=({}x{})  conf={:.3f}".format(
-                            cx_img, cy_img, w_img, h_img, score
-                        ))
-                        print("          display=({}, {})  confidence={:.3f}".format(
-                            cx_disp, cy_disp, score
-                        ))
-                elif output_serial:
-                    serial_send("BALL_POS_CM:NA")
-                    if verbose_serial:
-                        print("=== Frame {} | 未检测到钢珠 ===".format(frame_count))
-
-                if frame_count % 60 == 0:
-                    gc.collect()
-    except Exception as e:
-        print("Error:", e)
-    finally:
-        yolo_det.deinit()
-        if wireless_image is not None:
-            wireless_image.deinit()
-        pl.destroy()
-        print("钢球检测已停止")

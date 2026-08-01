@@ -4,6 +4,8 @@ from machine import FPIOA, UART
 from time import sleep_ms
 import _thread
 
+print = lambda *args, **kwargs: None
+
 
 def init_uart2(baudrate=115200, tx_pin=44, rx_pin=45):
     try:
