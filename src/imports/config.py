@@ -44,9 +44,9 @@ model_input_size = [320, 320]              # 模型输入图像尺寸：[宽, �
 anchors = None                             # 锚框配置；None 表示当前无锚框模型不使用预设锚框
 
 # ==================== 检测与跟踪 ====================
-confidence_threshold = 0.50     # 最终显示和输出检测结果的置信度阈值
+confidence_threshold = 0.40    # 最终显示和输出检测结果的置信度阈值
 nms_threshold = 0.35            # 非极大值抑制的交并比阈值，用于去除重叠检测框
-detect_threshold = 0.50         # 模型候选结果的初步置信度筛选阈值
+detect_threshold = 0.40         # 模型候选结果的初步置信度筛选阈值
 max_miss_count = 4              # 目标暂时丢失时允许保持上一次结果的最大帧数
 smooth_alpha = 0.65             # 位置平滑系数；越大越偏向当前检测值，响应越快
 track_length_cm = 25.0          # 实际轨道长度，单位为厘米，用于将像素坐标换算为物理位置
