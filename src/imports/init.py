@@ -1,6 +1,7 @@
 """Public recognition/runtime interfaces used by main.py."""
 
 from .recognition_runtime import (
+    show_no_sensor_screen,
     init_recognition,
     recognize_once,
     display_result,

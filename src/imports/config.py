@@ -18,7 +18,8 @@ uart2_rx_pin = 45                # UART2 接收引脚，对应 IO45
 uart2_ready_interval_ms = 1000   # UART2_READY 就绪消息的周期发送间隔，单位为毫秒
 
 # ==================== 任务选择按键 ====================
-default_task_type = 1            # 上电默认任务
+default_task_type = 0            # 上电不选择任务；按键后才向下位机发送启动命令
+task_command_repeat_count = 3    # 同一控制周期重复发送，降低启动命令丢失概率
 key0_pin = 34                    # K0：单击任务1，双击任务4，低电平有效
 key1_pin = 35                    # K1：单击任务2，双击任务5，低电平有效
 key2_pin = 0                     # K2：单击任务3，双击任务6，高电平有效

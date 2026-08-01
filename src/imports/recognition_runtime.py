@@ -6,7 +6,78 @@ from time import ticks_ms, ticks_diff
 from .PipeLine import PipeLine
 from .steel_ball_app import YOLOv12App, find_sensor
 from .task_keys import TaskKeyController
+from .data_logger import log_vision
 from .config import *
+
+
+def show_no_sensor_screen(port2_send=None, service_callback=None):
+    """Show a persistent LCD error instead of terminating without a camera."""
+    from media.display import Display
+    from media.media import MediaManager
+    import image
+    import time
+
+    display_started = False
+    media_started = False
+    try:
+        if display_mode in ("hdmi", "lt9611"):
+            display_device = Display.LT9611
+        else:
+            display_device = Display.ST7701
+        Display.init(
+            display_device,
+            width=display_size[0],
+            height=display_size[1],
+            osd_num=1,
+            to_ide=True,
+        )
+        display_started = True
+        MediaManager.init()
+        media_started = True
+
+        error_image = image.Image(
+            Display.width(), Display.height(), image.ARGB8888
+        )
+        error_image.clear()
+        error_image.draw_string_advanced(
+            max(0, Display.width() // 2 - 150),
+            max(0, Display.height() // 2 - 55),
+            56,
+            "NO SENSOR",
+            color=(255, 255, 0, 0),
+        )
+        error_image.draw_string_advanced(
+            max(0, Display.width() // 2 - 155),
+            Display.height() // 2 + 25,
+            24,
+            "Check camera and CSI cable",
+            color=(255, 255, 255, 255),
+        )
+        Display.show_image(error_image, 0, 0, Display.LAYER_OSD3)
+        print("[CAMERA] NO SENSOR")
+
+        last_na_ms = time.ticks_ms()
+        while True:
+            os.exitpoint()
+            if service_callback is not None:
+                service_callback()
+            now_ms = time.ticks_ms()
+            if (port2_send is not None
+                    and time.ticks_diff(now_ms, last_na_ms) >= 500):
+                port2_send("BALL_POS_CM:NA")
+                last_na_ms = now_ms
+            time.sleep_ms(20)
+    finally:
+        if display_started:
+            try:
+                Display.deinit()
+            except Exception:
+                pass
+        if media_started:
+            try:
+                MediaManager.deinit()
+            except Exception:
+                pass
 
 
 def init_recognition(port2_media_ready=None):
@@ -45,6 +116,7 @@ def init_recognition(port2_media_ready=None):
         "yolo": detector,
         "keys": TaskKeyController(),
         "task_type": default_task_type,
+        "pending_task_start": 0,
         "frame_count": 0,
         "last_ready_ms": ticks_ms(),
     }
@@ -72,17 +144,26 @@ def read_task_key(state):
 
 
 def set_task_type(state, task_type):
-    """保存 main.py 判断出的任务编号。"""
+    """保存任务编号，并安排一次可靠的任务启动事件。"""
     state["task_type"] = task_type
+    state["pending_task_start"] = task_type
 
 
 def output_result(state, result, port2_send):
     """输出 READY、任务编号和钢球位置。"""
     now_ms = ticks_ms()
+    log_vision(state["frame_count"], result, state["yolo"])
+    pending_task = state["pending_task_start"]
+    if pending_task:
+        # 三行在同一次循环连续发出。STM32在一次Update中只产生一个事件，
+        # 因而既能抵抗偶发丢字节，也不会把状态机重复启动三次。
+        for _ in range(task_command_repeat_count):
+            port2_send("TASK_START:{}".format(pending_task))
+        state["pending_task_start"] = 0
+
     if (uart2_ready_interval_ms > 0 and
             ticks_diff(now_ms, state["last_ready_ms"]) >= uart2_ready_interval_ms):
         port2_send("UART2_READY")
-        port2_send("TASK_TYPE:{}".format(state["task_type"]))
         state["last_ready_ms"] = now_ms
 
     frame_count = state["frame_count"]

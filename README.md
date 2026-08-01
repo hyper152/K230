@@ -116,6 +116,10 @@ python run.py
 
 推理脚本 `scripts/run.py` 在 K230D BOX 上使用 nncase runtime 运行，通过 PipeLine 获取摄像头画面，经 AI2D 预处理后推理，输出钢球检测框并通过 OSD 叠加显示。
 
+当前 `src/main.py` 还通过板载 K0/K1/K2 选择比赛任务。设备上电只进行识别，不自动启动下位机；按键事件确认后通过 UART2 连续发送三行 `TASK_START:n`，STM32 将三行合并为一次启动事件。单击 K0/K1/K2 对应任务 1/2/3，双击对应任务 4/5/6。钢球位置继续使用 `BALL_POS_CM:x.xx`，未检测到时发送 `BALL_POS_CM:NA`。
+
+程序每次启动会在 TF 卡 `/sdcard/logs` 下新建 `run_XXXX.csv`。`VISION` 行记录每帧识别的像素横坐标和标定后厘米位置，`STM32` 行原样记录 STM32 回传的 `DBG,T3,...` 控制数据。日志每 20 行刷新一次，正常退出时会再次刷新并关闭文件。
+
 关键参数在 `config.py` 中配置：
 
 | 参数 | 默认值 | 说明 |
