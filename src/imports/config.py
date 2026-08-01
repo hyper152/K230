@@ -12,9 +12,6 @@ camera_sensor_id = 2             # 摄像头所在的 CSI 接口编号
 
 # ==================== 位置输出 ====================
 serial_interval = 1              # 位置数据发送间隔：每 1 个推理帧发送一次
-serial_log_interval = 0          # 关闭 IDE/REPL 日志；不改变 Port2 输出协议
-verbose_serial = False           # 是否在 IDE 输出详细的检测与位置调试信息
-uart2_enable = True              # 是否启用 UART2 位置数据输出
 uart2_baudrate = 115200          # UART2 波特率，保持与接收端通信协议一致
 uart2_tx_pin = 44                # UART2 发送引脚，对应 IO44
 uart2_rx_pin = 45                # UART2 接收引脚，对应 IO45

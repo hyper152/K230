@@ -1,17 +1,11 @@
 import os
-import ujson
 from media.sensor import *
 from media.display import *
 from media.media import *
 from libs.Utils import ScopedTiming
 import nncase_runtime as nn
-import ulab.numpy as np
 import image
-import gc
-import sys
 import time
-
-print = lambda *args, **kwargs: None
 
 # PipeLine类
 class PipeLine:
@@ -33,6 +27,9 @@ class PipeLine:
         self.cur_frame=None
         self.debug_mode=debug_mode
         self.osd_layer_num = osd_layer_num
+        self.sensor_started = False
+        self.display_initialized = False
+        self.media_initialized = False
 
     # PipeLine初始化函数
     def create(self,sensor=None,hmirror=None,vflip=None,fps=60):
@@ -88,6 +85,7 @@ class PipeLine:
             else:
                 # 设置为LT9611显示，默认1920x1080
                 Display.init(Display.LT9611,osd_num=self.osd_layer_num, to_ide = True)
+            self.display_initialized = True
             self.display_size=[Display.width(),Display.height()]
                 
             # 通道0直接给到显示VO，格式为YUV420
@@ -106,8 +104,10 @@ class PipeLine:
 
             # media初始化
             MediaManager.init()
+            self.media_initialized = True
             # 启动sensor
             self.sensor.run()
+            self.sensor_started = True
 
     # 获取一帧图像数据，返回格式为ulab的array数据
     def get_frame(self):
@@ -128,11 +128,14 @@ class PipeLine:
     def destroy(self):
         with ScopedTiming("deinit PipeLine",self.debug_mode > 0):
             os.exitpoint(os.EXITPOINT_ENABLE_SLEEP)
-            # stop sensor
-            self.sensor.stop()
-            # deinit lcd
-            Display.deinit()
-            time.sleep_ms(50)
-            # deinit media buffer
-            MediaManager.deinit()
+            if self.sensor_started:
+                self.sensor.stop()
+                self.sensor_started = False
+            if self.display_initialized:
+                Display.deinit()
+                self.display_initialized = False
+                time.sleep_ms(50)
+            if self.media_initialized:
+                MediaManager.deinit()
+                self.media_initialized = False
             

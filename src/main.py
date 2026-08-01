@@ -57,6 +57,8 @@ try:
         output_result(runtime, detections, send_port2)
 finally:
     # 无论正常退出还是发生异常，都按顺序释放 AI/媒体资源和 UART2。
-    if runtime is not None:
-        deinit_recognition(runtime)
-    deinit_port2()
+    try:
+        if runtime is not None:
+            deinit_recognition(runtime)
+    finally:
+        deinit_port2()

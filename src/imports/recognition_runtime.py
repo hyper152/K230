@@ -16,21 +16,30 @@ def init_recognition(port2_media_ready=None):
     except Exception:
         raise RuntimeError("Model file not found: {}".format(kmodel_path))
 
-    sensor, sensor_id = find_sensor()
+    sensor = find_sensor()
     pipeline = PipeLine(
         rgb888p_size=rgb888p_size,
         display_size=display_size,
         display_mode=display_mode,
     )
-    pipeline.create(sensor=sensor)
-    if port2_media_ready is not None:
-        port2_media_ready()
+    detector = None
+    try:
+        pipeline.create(sensor=sensor)
+        if port2_media_ready is not None:
+            port2_media_ready()
 
-    detector = YOLOv12App(
-        kmodel_path, model_input_size, anchors,
-        rgb888p_size, display_size, debug_mode,
-    )
-    detector.config_preprocess()
+        detector = YOLOv12App(
+            kmodel_path, model_input_size, anchors,
+            rgb888p_size, display_size, debug_mode,
+        )
+        detector.config_preprocess()
+    except Exception:
+        try:
+            if detector is not None:
+                detector.deinit()
+        finally:
+            pipeline.destroy()
+        raise
     return {
         "pl": pipeline,
         "yolo": detector,
@@ -51,7 +60,9 @@ def display_result(state, result):
     """按照配置周期刷新 OSD。"""
     frame_count = state["frame_count"]
     if display_interval > 0 and frame_count % display_interval == 0:
-        state["yolo"].draw_result(state["pl"], result)
+        state["yolo"].draw_result(
+            state["pl"], result, state["task_type"]
+        )
         state["pl"].show_image()
 
 
@@ -93,5 +104,7 @@ def maintain_runtime(state):
 
 def deinit_recognition(state):
     """释放模型和媒体资源。"""
-    state["yolo"].deinit()
-    state["pl"].destroy()
+    try:
+        state["yolo"].deinit()
+    finally:
+        state["pl"].destroy()

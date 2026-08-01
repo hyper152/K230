@@ -14,20 +14,15 @@ import ulab.numpy as np
 import image
 from .config import *
 
-# 关闭控制台输出，避免日志格式化和 USB 串口输出占用实时循环。
-print = lambda *args, **kwargs: None
-
 def find_sensor():
-    """扫描 CSI0~CSI2，返回第一个可用的摄像头对象和编号。"""
-    print("Initializing camera on CSI{}...".format(camera_sensor_id))
+    """按照配置创建摄像头对象。"""
     sensor = Sensor(
         id=camera_sensor_id,
         width=sensor_width,
         height=sensor_height,
         fps=sensor_fps
     )
-    print("Camera found on CSI{}".format(camera_sensor_id))
-    return sensor, camera_sensor_id
+    return sensor
 
 
 class YOLOv12App(AIBase):
@@ -71,9 +66,6 @@ class YOLOv12App(AIBase):
         with ScopedTiming("set preprocess config", self.debug_mode > 0):
             ai2d_input_size = input_image_size if input_image_size else self.rgb888p_size
             top, bottom, left, right = self.get_padding_param()
-
-            if self.debug_mode > 0:
-                print("padding: {} {} {} {}".format(top, bottom, left, right))
 
             self.ai2d.pad([0, 0, 0, 0, top, bottom, left, right], 0, [104, 117, 123])
             self.ai2d.resize(nn.interp_method.tf_bilinear, nn.interp_mode.half_pixel)
@@ -207,7 +199,7 @@ class YOLOv12App(AIBase):
         self.miss_count = 0
         return []
 
-    def draw_result(self, pl, dets):
+    def draw_result(self, pl, dets, task_type):
         with ScopedTiming("display_draw", self.debug_mode > 0):
             pl.osd_img.clear()
             pl.osd_img.draw_string_advanced(0, 0, 32, "balls: {}".format(len(dets)), color=(255, 0, 255, 0))
@@ -219,6 +211,10 @@ class YOLOv12App(AIBase):
                 ball_pos_text = "BallPos: --"
             pl.osd_img.draw_string_advanced(
                 0, 36, 32, ball_pos_text, color=(255, 0, 255, 0)
+            )
+            pl.osd_img.draw_string_advanced(
+                0, 72, 32, "Task: {}".format(task_type),
+                color=(255, 255, 255, 0)
             )
 
             # 屏幕底部刻度与 x_to_position_cm() 使用同一组标定参数。
