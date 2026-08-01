@@ -27,7 +27,7 @@ from pathlib import Path
 # ======================== 在这里填写路径 ======================== #
 
 # 待转换的 PyTorch 模型路径（YOLOv8n，3M 参数量）
-MODEL_PATH = r"C:\Users\23615\Desktop\.hyper\embedded\2026电赛TI杯\k230\weights\yolov8n\2\best.pt"
+MODEL_PATH = r"C:\Users\23615\Desktop\.hyper\embedded\2026电赛TI杯\k230\weights\yolov8n\3\best.pt"
 
 # PTQ 校准图片目录（至少放入 20 张图片）
 CALIBRATION_IMAGE_DIR = r"C:\Users\23615\Desktop\.hyper\PC\CV\data\img\steelball\images"
